@@ -75,6 +75,14 @@ export default function Header() {
           >
             Marketplace
           </Link>
+          {isConnected && (
+            <Link
+              href="/dashboard"
+              className="text-gray-200 hover:text-white font-medium transition"
+            >
+              Dashboard
+            </Link>
+          )}
         </nav>
 
         {/* Desktop Actions */}
@@ -195,6 +203,15 @@ export default function Header() {
             >
               Create Event
             </Link>
+            {isConnected && (
+              <Link
+                href="/dashboard"
+                className="block text-gray-200 hover:text-white font-medium text-lg transition py-2"
+                onClick={handleMenuItemClick}
+              >
+                Dashboard
+              </Link>
+            )}
           </nav>
 
           {/* Divider */}
