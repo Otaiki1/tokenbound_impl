@@ -11,6 +11,7 @@ import type { WalletProviderId } from '@/contexts/walletAdapters';
 const NAV_LINKS = [
   { href: "/", label: "Home" },
   { href: "/events", label: "Events" },
+  { href: "/marketplace", label: "Marketplace" },
   { href: "/analytics", label: "Analytics" },
 ];
 
@@ -27,7 +28,6 @@ export default function Header() {
     setProviderId,
   } = useWallet();
   const pathname = usePathname();
-  const { address, isConnected, isInstalled, connect, disconnect } = useWallet();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isWalletModalOpen, setIsWalletModalOpen] = useState(false);
 
@@ -59,23 +59,19 @@ export default function Header() {
       console.error("Connect error", err);
       openWalletModal();
     }
-
-    await connect();
   };
 
   const closeMenu = () => setIsMenuOpen(false);
 
-  const handleMenuAction = async (action?: () => Promise<void> | void) => {
+  const handleMenuItemClick = async (action?: () => Promise<void> | void) => {
     if (action) {
       await action();
     }
-
     closeMenu();
   };
 
   useEffect(() => {
     document.body.style.overflow = isMenuOpen ? "hidden" : "";
-
     return () => {
       document.body.style.overflow = "";
     };
@@ -106,18 +102,15 @@ export default function Header() {
 
         {/* Desktop Navigation */}
         <nav className="hidden md:flex items-center gap-8">
-          <Link
-            href="#"
-            className="text-gray-200 hover:text-white font-medium transition"
-          >
-            Events
-          </Link>
-          <Link
-            href="#"
-            className="text-gray-200 hover:text-white font-medium transition"
-          >
-            Marketplace
-          </Link>
+          {NAV_LINKS.map((link) => (
+            <Link
+              key={link.href}
+              href={link.href}
+              className="text-gray-200 hover:text-white font-medium transition"
+            >
+              {link.label}
+            </Link>
+          ))}
           {isConnected && (
             <Link
               href="/dashboard"
@@ -150,7 +143,6 @@ export default function Header() {
             </button>
           )}
 
-          <Link href="/create-event" className="bg-[#FF5722] hover:bg-[#F4511E] text-white px-6 py-2 rounded-lg font-bold shadow-md transition text-center inline-block">
           <Link
             href="/create-event"
             className="rounded-lg bg-[#FF5722] px-6 py-2 font-bold text-white shadow-md transition hover:bg-[#F4511E]"
@@ -213,7 +205,7 @@ export default function Header() {
                     ? "bg-white/10 text-white"
                     : "text-gray-200 hover:bg-white/5 hover:text-white"
                 }`}
-                onClick={() => handleMenuAction()}
+                onClick={() => handleMenuItemClick()}
               >
                 {link.label}
               </Link>
@@ -229,7 +221,7 @@ export default function Header() {
                   {formatAddress(address!)}
                 </div>
                 <button
-                  onClick={() => handleMenuAction(disconnect)}
+                  onClick={() => handleMenuItemClick(disconnect)}
                   className="w-full rounded-2xl border border-gray-400 px-4 py-4 font-medium text-white transition hover:bg-white/10"
                 >
                   Disconnect
@@ -237,7 +229,7 @@ export default function Header() {
               </>
             ) : (
               <button
-                onClick={() => handleMenuAction(handleConnect)}
+                onClick={() => handleMenuItemClick(handleConnect)}
                 className="w-full rounded-2xl border border-gray-400 px-4 py-4 font-medium text-white transition hover:bg-white/10"
               >
                 {isInstalled ? `Connect ${providerName}` : "Select Wallet"}
@@ -246,9 +238,7 @@ export default function Header() {
 
             <Link
               href="/create-event"
-              onClick={handleMenuItemClick}
-              className="w-full block bg-[#FF5722] hover:bg-[#F4511E] text-white px-4 py-3 rounded-lg font-bold shadow-md transition text-center"
-              onClick={() => handleMenuAction()}
+              onClick={() => handleMenuItemClick()}
               className="block w-full rounded-2xl bg-[#FF5722] px-4 py-4 text-center font-bold text-white shadow-md transition hover:bg-[#F4511E]"
             >
               Create Events
@@ -260,8 +250,8 @@ export default function Header() {
       {/* Wallet Selection Modal */}
       {isWalletModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="bg-[#252525] rounded-xl p-4 w-full max-w-md text-white shadow-xl">
-            <div className="flex justify-between items-center mb-3">
+          <div className="w-full max-w-md rounded-xl bg-[#252525] p-4 text-white shadow-xl">
+            <div className="mb-3 flex items-center justify-between">
               <h3 className="text-lg font-bold">Choose Wallet Provider</h3>
               <button onClick={closeWalletModal} className="text-white hover:text-gray-300">
                 <X size={20} />
@@ -276,11 +266,11 @@ export default function Header() {
                     if (provider.installed) handleProviderSelect(provider.id);
                     else window.open(provider.installUrl, "_blank");
                   }}
-                  className={`w-full text-left rounded-lg border p-3 transition ${
+                  className={`w-full rounded-lg border p-3 text-left transition ${
                     provider.id === providerId ? "border-blue-400" : "border-gray-600"
-                  } ${provider.installed ? "hover:border-blue-300" : "opacity-70 cursor-pointer"}`}
+                  } ${provider.installed ? "hover:border-blue-300" : "cursor-pointer opacity-70"}`}
                 >
-                  <div className="flex justify-between items-center">
+                  <div className="flex items-center justify-between">
                     <div>
                       <div className="font-semibold">{provider.name}</div>
                       <div className="text-xs text-gray-300">{provider.description}</div>

@@ -1,14 +1,12 @@
-import { Horizon, TransactionBuilder, Operation, Networks } from "@stellar/stellar-sdk";
-import { nativeToScVal } from "@stellar/stellar-base";
-import { signTransaction } from "@stellar/freighter-api";
-const { Server } = Horizon;
-import StellarSdk from "@stellar/stellar-sdk";
 import { nativeToScVal, scValToNative } from "@stellar/stellar-base";
 import { signTransaction } from "@stellar/freighter-api";
 
-// "@stellar/stellar-sdk" has a default export that bundles several
-// constructors; we pull out the pieces we need for clarity.
-const { Server, TransactionBuilder, Operation, Networks, SorobanRpc } = StellarSdk;
+// Use require for the default export
+const StellarSdk = require("@stellar/stellar-sdk");
+const { Server, TransactionBuilder, Operation, SorobanRpc } = StellarSdk;
+
+// Import Networks separately to avoid conflict
+import { Networks } from "@stellar/stellar-sdk";
 
 // Configuration helpers – prefer environment variables so they can be swapped
 // for different networks (testnet / preview / mainnet) without changing code.
@@ -37,10 +35,36 @@ export type SignTransactionFn = (
   txXdr: string,
   options: { networkPassphrase: string; address: string }
 ) => Promise<string>;
+
 export interface BuyTicketsParams {
   buyer: string;
   eventId: number;
   quantity: bigint;
+}
+
+export interface Event {
+  id: number;
+  theme: string;
+  organizer: string;
+  event_type: string;
+  total_tickets: bigint;
+  tickets_sold: bigint;
+  ticket_price: bigint;
+  start_date: number;
+  end_date: number;
+  is_canceled: boolean;
+  ticket_nft_addr: string;
+  payment_token: string;
+}
+
+export interface UpdateEventParams {
+  organizer: string;
+  event_id: number;
+  theme?: string;
+  ticket_price?: bigint;
+  total_tickets?: bigint;
+  start_date?: number;
+  end_date?: number;
 }
 
 export function isEventManagerConfigured() {
@@ -55,8 +79,6 @@ export async function createEvent(
   params: CreateEventParams,
   signTransactionFn: SignTransactionFn
 ) {
-  if (EVENT_MANAGER_CONTRACT === "<MISSING_CONTRACT_ID>") {
-export async function createEvent(params: CreateEventParams) {
   if (!isEventManagerConfigured()) {
     throw new Error(
       "EVENT_MANAGER_CONTRACT is not configured. Set NEXT_PUBLIC_EVENT_MANAGER_CONTRACT in your env."
@@ -110,7 +132,10 @@ export async function createEvent(params: CreateEventParams) {
   return await server.submitTransaction(signedTx as any);
 }
 
-export async function buyTickets(params: BuyTicketsParams) {
+export async function buyTickets(
+  params: BuyTicketsParams,
+  signTransactionFn: SignTransactionFn
+) {
   if (!isEventManagerConfigured()) {
     throw new Error(
       "EVENT_MANAGER_CONTRACT is not configured. Set NEXT_PUBLIC_EVENT_MANAGER_CONTRACT in your env."
@@ -130,29 +155,25 @@ export async function buyTickets(params: BuyTicketsParams) {
   const operation = Operation.invokeContractFunction({
     contract: EVENT_MANAGER_CONTRACT,
     function: "purchase_tickets",
-export interface Event {
-  id: number;
-  theme: string;
-  organizer: string;
-  event_type: string;
-  total_tickets: bigint;
-  tickets_sold: bigint;
-  ticket_price: bigint;
-  start_date: number;
-  end_date: number;
-  is_canceled: boolean;
-  ticket_nft_addr: string;
-  payment_token: string;
-}
+    args,
+  });
 
-export interface UpdateEventParams {
-  organizer: string;
-  event_id: number;
-  theme?: string;
-  ticket_price?: bigint;
-  total_tickets?: bigint;
-  start_date?: number;
-  end_date?: number;
+  const tx = new TransactionBuilder(sourceAccount, {
+    fee: fee.toString(),
+    networkPassphrase: NETWORK_PASSPHRASE,
+  })
+    .addOperation(operation)
+    .setTimeout(30)
+    .build();
+
+  const txXdr = tx.toXDR();
+  const signedTxXdr = await signTransactionFn(txXdr, {
+    networkPassphrase: NETWORK_PASSPHRASE,
+    address: params.buyer,
+  });
+
+  const signedTx = TransactionBuilder.fromXDR(signedTxXdr, NETWORK_PASSPHRASE);
+  return await server.submitTransaction(signedTx as any);
 }
 
 async function simulateAndInvoke(
@@ -180,27 +201,18 @@ async function simulateAndInvoke(
     .build();
 
   const txXdr = tx.toXDR();
-  const { signedTxXdr } = await signTransaction(txXdr, {
-    networkPassphrase: NETWORK_PASSPHRASE,
-    address: params.buyer,
-  const simResult = await rpc.simulateTransaction(tx);
-  if (SorobanRpc.Api.isSimulationError(simResult)) {
-    throw new Error(`Simulation failed: ${simResult.error}`);
-  }
-
-  const preparedTx = SorobanRpc.assembleTransaction(tx, simResult).build();
-  const { signedTxXdr } = await signTransaction(preparedTx.toXDR(), {
+  const signedTxXdr = await signTransaction(txXdr, {
     networkPassphrase: NETWORK_PASSPHRASE,
     address: caller,
   });
 
-  return await server.submitTransaction(signedTxXdr);
+  const signedTx = TransactionBuilder.fromXDR(signedTxXdr, NETWORK_PASSPHRASE);
+  return await server.submitTransaction(signedTx as any);
 }
 
 /** Read all events from the contract (view call, no signing needed). */
 export async function getAllEvents(): Promise<Event[]> {
   const rpc = new SorobanRpc.Server(SOROBAN_RPC_URL);
-  const server = new Server(HORIZON_URL);
 
   // Use a dummy fee account for simulation – we just need a read
   const operation = Operation.invokeContractFunction({
