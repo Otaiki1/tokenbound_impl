@@ -71,18 +71,28 @@ export default function Header() {
           </div>
         </Link>
 
-        <nav className="hidden items-center gap-8 md:flex">
-          {NAV_LINKS.map((link) => (
+        {/* Desktop Navigation */}
+        <nav className="hidden md:flex items-center gap-8">
+          <Link
+            href="#"
+            className="text-gray-200 hover:text-white font-medium transition"
+          >
+            Events
+          </Link>
+          <Link
+            href="#"
+            className="text-gray-200 hover:text-white font-medium transition"
+          >
+            Marketplace
+          </Link>
+          {isConnected && (
             <Link
-              key={link.href}
-              href={link.href}
-              className={`font-medium transition ${
-                pathname === link.href ? "text-white" : "text-gray-200 hover:text-white"
-              }`}
+              href="/dashboard"
+              className="text-gray-200 hover:text-white font-medium transition"
             >
-              {link.label}
+              Dashboard
             </Link>
-          ))}
+          )}
         </nav>
 
         <div className="hidden items-center gap-4 md:flex">

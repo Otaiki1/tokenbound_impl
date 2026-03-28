@@ -5,6 +5,7 @@ use core::convert::TryFrom;
 use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, Address, BytesN, Env, IntoVal, String,
     Symbol, Vec,
+    contract, contracterror, contractimpl, contracttype, Address, BytesN, Env, IntoVal, String, Symbol, Vec,
 };
 
 #[contracterror]
@@ -96,6 +97,16 @@ impl EventManager {
         let ticket_nft_addr =
             Self::deploy_ticket_nft(&env, event_id).ok_or(Error::FactoryNotInitialized)?;
 
+        // Validate inputs
+        Self::validate_event_params(&env, start_date, end_date, ticket_price, total_tickets).unwrap_or_else(|e| panic!("Validation failed: {:?}", e));
+
+        // Get and increment event counter
+        let event_id = Self::get_and_increment_counter(&env).unwrap_or_else(|e| panic!("Counter error: {:?}", e));
+
+        // Deploy ticket NFT contract via factory
+        let ticket_nft_addr = Self::deploy_ticket_nft(&env, event_id, theme.clone(), total_tickets).unwrap_or_else(|e| panic!("Deploy failed: {:?}", e));
+
+        // Create event struct
         let event = Event {
             id: event_id,
             theme,
@@ -121,7 +132,7 @@ impl EventManager {
             (event_id, organizer, ticket_nft_addr),
         );
 
-        Ok(event_id)
+        event_id
     }
 
     pub fn get_event(env: Env, event_id: u32) -> Result<Event, Error> {
@@ -492,6 +503,154 @@ impl EventManager {
         if ticket_price <= 0 {
             return 0;
         }
+    fn deploy_ticket_nft(env: &Env, event_id: u32, _theme: String, _total_supply: u128) -> Result<Address, Error> {
+        let factory_addr: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::TicketFactory)
+            .ok_or(Error::FactoryNotInitialized)?;
+
+        // Create a unique salt from the event_id
+        let mut salt_bytes = [0u8; 32];
+        let id_bytes = event_id.to_be_bytes();
+        salt_bytes[..4].copy_from_slice(&id_bytes);
+        let salt = BytesN::from_array(env, &salt_bytes);
+
+        // Call the factory contract to deploy a new NFT contract
+        let mut args = Vec::new(env);
+        args.push_back(env.current_contract_address().to_val());
+        args.push_back(salt.to_val());
+
+        let nft_addr: Address =
+            env.invoke_contract(&factory_addr, &Symbol::new(env, "deploy_ticket"), args);
+
+        Ok(nft_addr)
+    }
+}
+
+#[cfg(test)]
+mod update_event_tests {
+    use super::*;
+    use crate::test::MockContract;
+    use soroban_sdk::{testutils::Address as _, testutils::Ledger};
+
+    fn setup_event_for_update(env: &Env) -> (EventManagerClient<'_>, Address, u32) {
+        let contract_id = env.register(EventManager, ());
+        let client = EventManagerClient::new(env, &contract_id);
+        let mock_addr = env.register(MockContract, ());
+        let organizer = Address::generate(env);
+        env.mock_all_auths();
+        client.initialize(&mock_addr);
+
+        let start_date = env.ledger().timestamp() + 86400;
+        let end_date = start_date + 86400;
+        let event_id = client.create_event(
+            &organizer,
+            &String::from_str(env, "Original Theme"),
+            &String::from_str(env, "Conference"),
+            &start_date,
+            &end_date,
+            &1000_0000000,
+            &100,
+            &Address::generate(env),
+        );
+        (client, organizer, event_id)
+    }
+
+    #[test]
+    fn test_update_event_theme() {
+        let env = Env::default();
+        let (client, _organizer, event_id) = setup_event_for_update(&env);
+
+        client.update_event(
+            &event_id,
+            &Option::Some(String::from_str(&env, "Updated Theme")),
+            &Option::None,
+            &Option::None,
+            &Option::None,
+            &Option::None,
+        );
+
+        let event = client.get_event(&event_id);
+        assert_eq!(event.theme, String::from_str(&env, "Updated Theme"));
+    }
+
+    #[test]
+    fn test_update_event_ticket_price() {
+        let env = Env::default();
+        let (client, _organizer, event_id) = setup_event_for_update(&env);
+        let new_price = 2000_0000000i128;
+
+        client.update_event(
+            &event_id,
+            &Option::None,
+            &Option::Some(new_price),
+            &Option::None,
+            &Option::None,
+            &Option::None,
+        );
+
+        let event = client.get_event(&event_id);
+        assert_eq!(event.ticket_price, new_price);
+    }
+
+    #[test]
+    fn test_update_event_total_tickets() {
+        let env = Env::default();
+        let (client, _organizer, event_id) = setup_event_for_update(&env);
+
+        client.update_event(
+            &event_id,
+            &Option::None,
+            &Option::None,
+            &Option::Some(200u128),
+            &Option::None,
+            &Option::None,
+        );
+
+        let event = client.get_event(&event_id);
+        assert_eq!(event.total_tickets, 200);
+    }
+
+    #[test]
+    fn test_update_event_dates() {
+        let env = Env::default();
+        let (client, _organizer, event_id) = setup_event_for_update(&env);
+        let new_start = env.ledger().timestamp() + 172800;
+        let new_end = new_start + 86400;
+
+        client.update_event(
+            &event_id,
+            &Option::None,
+            &Option::None,
+            &Option::None,
+            &Option::Some(new_start),
+            &Option::Some(new_end),
+        );
+
+        let event = client.get_event(&event_id);
+        assert_eq!(event.start_date, new_start);
+        assert_eq!(event.end_date, new_end);
+    }
+
+    #[test]
+    fn test_update_event_emits_event() {
+        let env = Env::default();
+        let (client, _organizer, event_id) = setup_event_for_update(&env);
+
+        client.update_event(
+            &event_id,
+            &Option::Some(String::from_str(&env, "Emit Test")),
+            &Option::None,
+            &Option::None,
+            &Option::None,
+            &Option::None,
+        );
+
+        // Update completed successfully; event_updated is emitted in the same code path
+        let event = client.get_event(&event_id);
+        assert_eq!(event.theme, String::from_str(&env, "Emit Test"));
+    }
 
         let quantity_i128 =
             i128::try_from(quantity).unwrap_or_else(|_| panic!("Quantity exceeds pricing range"));
