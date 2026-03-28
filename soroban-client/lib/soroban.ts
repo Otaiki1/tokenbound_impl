@@ -1,17 +1,20 @@
-import StellarSdk, { rpc } from "@stellar/stellar-sdk";
+import { env } from "./env";
+
+import { Horizon, TransactionBuilder, Operation, Networks } from "@stellar/stellar-sdk";
+import { nativeToScVal } from "@stellar/stellar-base";
+import { signTransaction } from "@stellar/freighter-api";
+const { Server } = Horizon;
+import StellarSdk from "@stellar/stellar-sdk";
 import { nativeToScVal, scValToNative } from "@stellar/stellar-base";
 
 const { Server, TransactionBuilder, Operation, Networks } = StellarSdk;
 
-const HORIZON_URL =
-  process.env.NEXT_PUBLIC_HORIZON_URL || "https://horizon-testnet.stellar.org";
-const SOROBAN_RPC_URL =
-  process.env.NEXT_PUBLIC_SOROBAN_RPC_URL || "https://soroban-testnet.stellar.org";
-const NETWORK_PASSPHRASE =
-  process.env.NEXT_PUBLIC_NETWORK_PASSPHRASE || Networks.TESTNET;
-
-const EVENT_MANAGER_CONTRACT =
-  process.env.NEXT_PUBLIC_EVENT_MANAGER_CONTRACT || "<MISSING_CONTRACT_ID>";
+// Configuration helpers – prefer environment variables so they can be swapped
+// for different networks (testnet / preview / mainnet) without changing code.
+const HORIZON_URL = env.NEXT_PUBLIC_HORIZON_URL;
+const SOROBAN_RPC_URL = env.NEXT_PUBLIC_SOROBAN_RPC_URL;
+const NETWORK_PASSPHRASE = env.NEXT_PUBLIC_NETWORK_PASSPHRASE;
+const EVENT_MANAGER_CONTRACT = env.NEXT_PUBLIC_EVENT_MANAGER_CONTRACT;
 
 export interface CreateEventParams {
   organizer: string;
