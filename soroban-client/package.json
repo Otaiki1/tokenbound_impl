@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "jest"
+    "test": "jest",
+    "sdk:generate-types": "node ./sdk/scripts/generate-contract-types.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",
