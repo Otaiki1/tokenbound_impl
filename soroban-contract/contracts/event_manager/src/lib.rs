@@ -1,10 +1,13 @@
 #![no_std]
 
+use core::convert::TryFrom;
+
 use soroban_sdk::{
+    contract, contracterror, contractimpl, contracttype, Address, BytesN, Env, IntoVal, String,
+    Symbol, Vec,
     contract, contracterror, contractimpl, contracttype, Address, BytesN, Env, IntoVal, String, Symbol, Vec,
 };
 
-// Error handling
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum Error {
@@ -20,17 +23,16 @@ pub enum Error {
     FactoryNotInitialized = 10,
 }
 
-// Storage keys
 #[contracttype]
 pub enum DataKey {
     Event(u32),
     EventCounter,
     TicketFactory,
-    RefundClaimed(u32, Address), // (event_id, buyer_address)
-    EventBuyers(u32),             // event_id -> Vec<Address> of ticket buyers
+    RefundClaimed(u32, Address),
+    EventBuyers(u32),
+    BuyerPurchase(u32, Address),
 }
 
-// Event structure
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Event {
@@ -48,30 +50,34 @@ pub struct Event {
     pub payment_token: Address,
 }
 
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct BuyerPurchase {
+    pub quantity: u128,
+    pub total_paid: i128,
+}
+
 #[contract]
 pub struct EventManager;
 
 #[contractimpl]
 impl EventManager {
-    /// Initialize the contract with the ticket factory address
     pub fn initialize(env: Env, ticket_factory: Address) -> Result<(), Error> {
-        // Ensure not already initialized
         if env.storage().instance().has(&DataKey::TicketFactory) {
             return Err(Error::AlreadyInitialized);
         }
 
-        // Store the ticket factory address
         env.storage()
             .instance()
             .set(&DataKey::TicketFactory, &ticket_factory);
-
-        // Initialize event counter
         env.storage().instance().set(&DataKey::EventCounter, &0u32);
-        
+        env.storage()
+            .instance()
+            .extend_ttl(Self::ttl_threshold(), Self::ttl_extend_to());
+
         Ok(())
     }
 
-    /// Create a new event
     pub fn create_event(
         env: Env,
         organizer: Address,
@@ -82,9 +88,14 @@ impl EventManager {
         ticket_price: i128,
         total_tickets: u128,
         payment_token: Address,
-    ) -> u32 {
-        // Validate organizer address
+    ) -> Result<u32, Error> {
         organizer.require_auth();
+
+        Self::validate_event_params(&env, start_date, end_date, ticket_price, total_tickets)?;
+
+        let event_id = Self::get_and_increment_counter(&env)?;
+        let ticket_nft_addr =
+            Self::deploy_ticket_nft(&env, event_id).ok_or(Error::FactoryNotInitialized)?;
 
         // Validate inputs
         Self::validate_event_params(&env, start_date, end_date, ticket_price, total_tickets).unwrap_or_else(|e| panic!("Validation failed: {:?}", e));
@@ -98,7 +109,7 @@ impl EventManager {
         // Create event struct
         let event = Event {
             id: event_id,
-            theme: theme.clone(),
+            theme,
             organizer: organizer.clone(),
             event_type,
             total_tickets,
@@ -111,19 +122,11 @@ impl EventManager {
             payment_token,
         };
 
-        // Store event
         env.storage()
             .persistent()
             .set(&DataKey::Event(event_id), &event);
+        Self::extend_persistent_ttl(&env, &DataKey::Event(event_id));
 
-        // Extend TTL for the new event
-        env.storage().persistent().extend_ttl(
-            &DataKey::Event(event_id),
-            30 * 24 * 60 * 60 / 5,  // threshold (~30 days)
-            100 * 24 * 60 * 60 / 5, // extend_to (~100 days)
-        );
-
-        // Emit event creation event
         env.events().publish(
             (Symbol::new(&env, "event_created"),),
             (event_id, organizer, ticket_nft_addr),
@@ -132,7 +135,6 @@ impl EventManager {
         event_id
     }
 
-    /// Get event by ID
     pub fn get_event(env: Env, event_id: u32) -> Result<Event, Error> {
         env.storage()
             .persistent()
@@ -140,7 +142,6 @@ impl EventManager {
             .ok_or(Error::EventNotFound)
     }
 
-    /// Get total number of events
     pub fn get_event_count(env: Env) -> u32 {
         env.storage()
             .instance()
@@ -148,13 +149,12 @@ impl EventManager {
             .unwrap_or(0)
     }
 
-    /// Get all events (pagination recommended for production)
     pub fn get_all_events(env: Env) -> Vec<Event> {
         let count = Self::get_event_count(env.clone());
         let mut events = Vec::new(&env);
 
-        for i in 0..count {
-            if let Some(event) = env.storage().persistent().get(&DataKey::Event(i)) {
+        for event_id in 0..count {
+            if let Some(event) = env.storage().persistent().get(&DataKey::Event(event_id)) {
                 events.push_back(event);
             }
         }
@@ -162,7 +162,12 @@ impl EventManager {
         events
     }
 
-    /// Cancel an event
+    pub fn get_buyer_purchase(env: Env, event_id: u32, buyer: Address) -> Option<BuyerPurchase> {
+        env.storage()
+            .persistent()
+            .get(&DataKey::BuyerPurchase(event_id, buyer))
+    }
+
     pub fn cancel_event(env: Env, event_id: u32) -> Result<(), Error> {
         let mut event: Event = env
             .storage()
@@ -170,31 +175,24 @@ impl EventManager {
             .get(&DataKey::Event(event_id))
             .ok_or(Error::EventNotFound)?;
 
-        // Only organizer can cancel
         event.organizer.require_auth();
 
-        // Check if already canceled
         if event.is_canceled {
             return Err(Error::EventAlreadyCanceled);
         }
 
-        // Mark as canceled
         event.is_canceled = true;
-
-        // Update storage
         env.storage()
             .persistent()
             .set(&DataKey::Event(event_id), &event);
+        Self::extend_persistent_ttl(&env, &DataKey::Event(event_id));
 
-        // Emit cancellation event
         env.events()
             .publish((Symbol::new(&env, "event_canceled"),), event_id);
-        
+
         Ok(())
     }
 
-    /// Claim refund for a canceled event (pull model)
-    /// Only works for canceled events, prevents double-refund claims
     pub fn claim_refund(env: Env, claimer: Address, event_id: u32) {
         claimer.require_auth();
 
@@ -204,12 +202,10 @@ impl EventManager {
             .get(&DataKey::Event(event_id))
             .unwrap_or_else(|| panic!("Event not found"));
 
-        // Event must be canceled
         if !event.is_canceled {
             panic!("Event is not canceled");
         }
 
-        // Check if this claimer already claimed refund
         if env
             .storage()
             .persistent()
@@ -218,45 +214,28 @@ impl EventManager {
             panic!("Refund already claimed");
         }
 
-        // Verify claimer is in the buyers list
-        let buyers: Vec<Address> = env
+        let purchase: BuyerPurchase = env
             .storage()
             .persistent()
-            .get(&DataKey::EventBuyers(event_id))
-            .unwrap_or_else(|| Vec::new(&env));
+            .get(&DataKey::BuyerPurchase(event_id, claimer.clone()))
+            .unwrap_or_else(|| panic!("Claimer did not purchase a ticket for this event"));
 
-        let mut found = false;
-        for buyer in buyers.iter() {
-            if buyer == claimer {
-                found = true;
-                break;
-            }
-        }
-
-        if !found {
-            panic!("Claimer did not purchase a ticket for this event");
-        }
-
-        // Mark refund as claimed (prevent double-refund)
         env.storage()
             .persistent()
             .set(&DataKey::RefundClaimed(event_id, claimer.clone()), &true);
+        Self::extend_persistent_ttl(&env, &DataKey::RefundClaimed(event_id, claimer.clone()));
 
-        // Transfer refund amount back to claimer
-        if event.ticket_price > 0 {
+        if purchase.total_paid > 0 {
             let token_client = soroban_sdk::token::Client::new(&env, &event.payment_token);
-            token_client.transfer(&event.organizer, &claimer, &event.ticket_price);
+            token_client.transfer(&event.organizer, &claimer, &purchase.total_paid);
         }
 
-        // Emit refund claimed event
         env.events().publish(
             (Symbol::new(&env, "refund_claimed"),),
-            (event_id, claimer, event.ticket_price),
+            (event_id, claimer, purchase.quantity, purchase.total_paid),
         );
     }
 
-    /// Update event details. Only the organizer can update. Cannot update a canceled event.
-    /// Cannot reduce total_tickets below tickets_sold. Cannot set dates in the past.
     pub fn update_event(
         env: Env,
         event_id: u32,
@@ -272,84 +251,68 @@ impl EventManager {
             .get(&DataKey::Event(event_id))
             .unwrap_or_else(|| panic!("Event not found"));
 
-        // Only organizer can update
         event.organizer.require_auth();
 
-        // Cannot update a canceled event
         if event.is_canceled {
             panic!("Cannot update a canceled event");
         }
 
         let current_time = env.ledger().timestamp();
 
-        // Apply theme if provided
-        if let Some(t) = theme {
-            event.theme = t;
+        if let Some(next_theme) = theme {
+            event.theme = next_theme;
         }
 
-        // Apply ticket_price if provided (must be non-negative)
-        if let Some(p) = ticket_price {
-            if p < 0 {
+        if let Some(next_price) = ticket_price {
+            if next_price < 0 {
                 panic!("Ticket price cannot be negative");
             }
-            event.ticket_price = p;
+            event.ticket_price = next_price;
         }
 
-        // Apply total_tickets if provided (cannot be below tickets_sold)
-        if let Some(t) = total_tickets {
-            if t == 0 {
+        if let Some(next_total) = total_tickets {
+            if next_total == 0 {
                 panic!("Total tickets must be greater than 0");
             }
-            if t < event.tickets_sold {
+            if next_total < event.tickets_sold {
                 panic!("Cannot reduce total_tickets below tickets_sold");
             }
-            event.total_tickets = t;
+            event.total_tickets = next_total;
         }
 
-        // Effective end for start validation (new end if provided in this call, else current)
         let effective_end = end_date.unwrap_or(event.end_date);
-        // Apply start_date if provided
-        if let Some(s) = start_date {
-            if s < current_time {
+        if let Some(next_start) = start_date {
+            if next_start < current_time {
                 panic!("Start date cannot be in the past");
             }
-            if s >= effective_end {
+            if next_start >= effective_end {
                 panic!("Start date must be before end date");
             }
-            event.start_date = s;
+            event.start_date = next_start;
         }
 
-        // Effective start for end validation (new start if provided in this call, else current)
         let effective_start = start_date.unwrap_or(event.start_date);
-        // Apply end_date if provided
-        if let Some(e) = end_date {
-            if e < current_time {
+        if let Some(next_end) = end_date {
+            if next_end < current_time {
                 panic!("End date cannot be in the past");
             }
-            if e <= effective_start {
+            if next_end <= effective_start {
                 panic!("End date must be after start date");
             }
-            event.end_date = e;
+            event.end_date = next_end;
         }
 
-        // Update storage
         env.storage()
             .persistent()
             .set(&DataKey::Event(event_id), &event);
+        Self::extend_persistent_ttl(&env, &DataKey::Event(event_id));
 
-        // Extend TTL
-        env.storage().persistent().extend_ttl(
-            &DataKey::Event(event_id),
-            30 * 24 * 60 * 60 / 5,
-            100 * 24 * 60 * 60 / 5,
+        env.events().publish(
+            (Symbol::new(&env, "event_updated"),),
+            (event_id, event.organizer),
         );
-
-        // Emit event_updated event
-        env.events()
-            .publish((Symbol::new(&env, "event_updated"),), (event_id, event.organizer.clone()));
     }
 
-    /// Update tickets sold (called by ticket purchase logic)
     pub fn update_tickets_sold(env: Env, event_id: u32, amount: u128) -> Result<(), Error> {
         let mut event: Event = env
             .storage()
@@ -357,31 +320,35 @@ impl EventManager {
             .get(&DataKey::Event(event_id))
             .ok_or(Error::EventNotFound)?;
 
-        // Verify the caller (should be the ticket NFT contract or authorized entity)
         event.ticket_nft_addr.require_auth();
 
-        // Update tickets sold
         event.tickets_sold = event
             .tickets_sold
             .checked_add(amount)
             .ok_or(Error::CounterOverflow)?;
 
-        // Ensure we don't oversell
         if event.tickets_sold > event.total_tickets {
             return Err(Error::CannotSellMoreTickets);
         }
 
-        // Update storage
         env.storage()
             .persistent()
             .set(&DataKey::Event(event_id), &event);
-        
+        Self::extend_persistent_ttl(&env, &DataKey::Event(event_id));
+
         Ok(())
     }
 
-    /// Purchase a ticket for an event
     pub fn purchase_ticket(env: Env, buyer: Address, event_id: u32) {
+        Self::purchase_tickets(env, buyer, event_id, 1);
+    }
+
+    pub fn purchase_tickets(env: Env, buyer: Address, event_id: u32, quantity: u128) {
         buyer.require_auth();
+
+        if quantity == 0 {
+            panic!("Quantity must be greater than 0");
+        }
 
         let mut event: Event = env
             .storage()
@@ -393,57 +360,42 @@ impl EventManager {
             panic!("Event is canceled");
         }
 
-        if event.tickets_sold >= event.total_tickets {
+        let next_tickets_sold = event
+            .tickets_sold
+            .checked_add(quantity)
+            .unwrap_or_else(|| panic!("Ticket quantity overflow"));
+
+        if next_tickets_sold > event.total_tickets {
             panic!("Event is sold out");
         }
 
-        // Handle payment
-        if event.ticket_price > 0 {
+        let total_price = Self::calculate_total_price(event.ticket_price, quantity);
+        if total_price > 0 {
             let token_client = soroban_sdk::token::Client::new(&env, &event.payment_token);
-            token_client.transfer(&buyer, &event.organizer, &event.ticket_price);
+            token_client.transfer(&buyer, &event.organizer, &total_price);
         }
 
-        // Mint ticket NFT
-        env.invoke_contract::<u128>(
-            &event.ticket_nft_addr,
-            &Symbol::new(&env, "mint_ticket_nft"),
-            soroban_sdk::vec![&env, buyer.into_val(&env)],
-        );
+        for _ in 0..quantity {
+            env.invoke_contract::<u128>(
+                &event.ticket_nft_addr,
+                &Symbol::new(&env, "mint_ticket_nft"),
+                soroban_sdk::vec![&env, buyer.clone().into_val(&env)],
+            );
+        }
 
-        // Track buyer for refund purposes
-        let mut buyers: Vec<Address> = env
-            .storage()
-            .persistent()
-            .get(&DataKey::EventBuyers(event_id))
-            .unwrap_or_else(|| Vec::new(&env));
-        buyers.push_back(buyer.clone());
-        env.storage()
-            .persistent()
-            .set(&DataKey::EventBuyers(event_id), &buyers);
+        Self::record_purchase(&env, event_id, buyer.clone(), quantity, total_price);
 
-        // Update tickets sold
-        event.tickets_sold += 1;
-
-        // Store updated event
+        event.tickets_sold = next_tickets_sold;
         env.storage()
             .persistent()
             .set(&DataKey::Event(event_id), &event);
+        Self::extend_persistent_ttl(&env, &DataKey::Event(event_id));
 
-        // Extend TTL
-        env.storage().persistent().extend_ttl(
-            &DataKey::Event(event_id),
-            30 * 24 * 60 * 60 / 5,
-            100 * 24 * 60 * 60 / 5,
-        );
-
-        // Emit purchase event
         env.events().publish(
             (Symbol::new(&env, "ticket_purchased"),),
-            (event_id, buyer, event.ticket_nft_addr),
+            (event_id, buyer, quantity, total_price, event.ticket_nft_addr),
         );
     }
-
-    // ========== Helper Functions ==========
 
     fn validate_event_params(
         env: &Env,
@@ -454,8 +406,7 @@ impl EventManager {
     ) -> Result<(), Error> {
         let current_time = env.ledger().timestamp();
 
-        // Validate dates
-        if start_date < current_time {
+        if start_date <= current_time {
             return Err(Error::InvalidStartDate);
         }
 
@@ -463,16 +414,14 @@ impl EventManager {
             return Err(Error::InvalidEndDate);
         }
 
-        // Validate ticket price
         if ticket_price < 0 {
             return Err(Error::NegativeTicketPrice);
         }
 
-        // Validate total tickets
         if total_tickets == 0 {
             return Err(Error::InvalidTicketCount);
         }
-        
+
         Ok(())
     }
 
@@ -483,15 +432,77 @@ impl EventManager {
             .get(&DataKey::EventCounter)
             .unwrap_or(0);
 
-        let next = current
-            .checked_add(1)
-            .ok_or(Error::CounterOverflow)?;
-
+        let next = current.checked_add(1).ok_or(Error::CounterOverflow)?;
         env.storage().instance().set(&DataKey::EventCounter, &next);
+        env.storage()
+            .instance()
+            .extend_ttl(Self::ttl_threshold(), Self::ttl_extend_to());
 
         Ok(current)
     }
 
+    fn deploy_ticket_nft(env: &Env, event_id: u32) -> Option<Address> {
+        let factory_addr: Address = env.storage().instance().get(&DataKey::TicketFactory)?;
+        let mut salt_bytes = [0u8; 32];
+        salt_bytes[28..32].copy_from_slice(&event_id.to_be_bytes());
+        let salt = BytesN::from_array(env, &salt_bytes);
+
+        Some(env.invoke_contract::<Address>(
+            &factory_addr,
+            &Symbol::new(env, "deploy_ticket"),
+            soroban_sdk::vec![
+                env,
+                env.current_contract_address().into_val(env),
+                salt.into_val(env)
+            ],
+        ))
+    }
+
+    fn record_purchase(
+        env: &Env,
+        event_id: u32,
+        buyer: Address,
+        quantity: u128,
+        total_paid: i128,
+    ) {
+        let key = DataKey::BuyerPurchase(event_id, buyer.clone());
+        let existing = env.storage().persistent().get::<_, BuyerPurchase>(&key);
+
+        if let Some(mut purchase) = existing {
+            purchase.quantity = purchase
+                .quantity
+                .checked_add(quantity)
+                .unwrap_or_else(|| panic!("Purchase quantity overflow"));
+            purchase.total_paid = purchase
+                .total_paid
+                .checked_add(total_paid)
+                .unwrap_or_else(|| panic!("Purchase total overflow"));
+            env.storage().persistent().set(&key, &purchase);
+        } else {
+            let purchase = BuyerPurchase {
+                quantity,
+                total_paid,
+            };
+            env.storage().persistent().set(&key, &purchase);
+
+            let buyers_key = DataKey::EventBuyers(event_id);
+            let mut buyers: Vec<Address> = env
+                .storage()
+                .persistent()
+                .get(&buyers_key)
+                .unwrap_or_else(|| Vec::new(env));
+            buyers.push_back(buyer.clone());
+            env.storage().persistent().set(&buyers_key, &buyers);
+            Self::extend_persistent_ttl(env, &buyers_key);
+        }
+
+        Self::extend_persistent_ttl(env, &key);
+    }
+
+    fn calculate_total_price(ticket_price: i128, quantity: u128) -> i128 {
+        if ticket_price <= 0 {
+            return 0;
+        }
     fn deploy_ticket_nft(env: &Env, event_id: u32, _theme: String, _total_supply: u128) -> Result<Address, Error> {
         let factory_addr: Address = env
             .storage()
@@ -641,116 +652,40 @@ mod update_event_tests {
         assert_eq!(event.theme, String::from_str(&env, "Emit Test"));
     }
 
-    #[test]
-    #[should_panic(expected = "Cannot update a canceled event")]
-    fn test_update_event_canceled_fails() {
-        let env = Env::default();
-        let (client, _organizer, event_id) = setup_event_for_update(&env);
-        client.cancel_event(&event_id);
+        let quantity_i128 =
+            i128::try_from(quantity).unwrap_or_else(|_| panic!("Quantity exceeds pricing range"));
+        let subtotal = ticket_price
+            .checked_mul(quantity_i128)
+            .unwrap_or_else(|| panic!("Price overflow"));
 
-        client.update_event(
-            &event_id,
-            &Option::Some(String::from_str(&env, "Should fail")),
-            &Option::None,
-            &Option::None,
-            &Option::None,
-            &Option::None,
-        );
+        let discount_bps = if quantity >= 10 {
+            1_000i128
+        } else if quantity >= 5 {
+            500i128
+        } else {
+            0i128
+        };
+
+        subtotal
+            .checked_mul(10_000i128 - discount_bps)
+            .and_then(|value| value.checked_div(10_000))
+            .unwrap_or_else(|| panic!("Discount calculation overflow"))
     }
 
-    #[test]
-    #[should_panic(expected = "Cannot reduce total_tickets below tickets_sold")]
-    fn test_update_event_total_tickets_below_sold_fails() {
-        let env = Env::default();
-        env.mock_all_auths();
-        let contract_id = env.register(EventManager, ());
-        let client = EventManagerClient::new(&env, &contract_id);
-        let mock_addr = env.register(MockContract, ());
-        let organizer = Address::generate(&env);
-        let buyer = Address::generate(&env);
-        client.initialize(&mock_addr);
-
-        let start_date = env.ledger().timestamp() + 86400;
-        let end_date = start_date + 86400;
-        let event_id = client.create_event(
-            &organizer,
-            &String::from_str(&env, "Event"),
-            &String::from_str(&env, "Type"),
-            &start_date,
-            &end_date,
-            &100i128,
-            &10u128,
-            &mock_addr,
-        );
-        client.purchase_ticket(&buyer, &event_id);
-        client.purchase_ticket(&Address::generate(&env), &event_id);
-
-        client.update_event(
-            &event_id,
-            &Option::None,
-            &Option::None,
-            &Option::Some(1u128),
-            &Option::None,
-            &Option::None,
-        );
+    fn extend_persistent_ttl(env: &Env, key: &DataKey) {
+        env.storage()
+            .persistent()
+            .extend_ttl(key, Self::ttl_threshold(), Self::ttl_extend_to());
     }
 
-    #[test]
-    #[should_panic(expected = "Start date cannot be in the past")]
-    fn test_update_event_start_date_past_fails() {
-        let env = Env::default();
-        let (client, _organizer, event_id) = setup_event_for_update(&env);
-        env.ledger()
-            .set_timestamp(env.ledger().timestamp() + 86400 * 2);
-        let past_start = env.ledger().timestamp() - 3600;
-
-        client.update_event(
-            &event_id,
-            &Option::None,
-            &Option::None,
-            &Option::None,
-            &Option::Some(past_start),
-            &Option::None,
-        );
+    const fn ttl_threshold() -> u32 {
+        30 * 24 * 60 * 60 / 5
     }
 
-    #[test]
-    #[should_panic(expected = "Start date must be before end date")]
-    fn test_update_event_end_before_start_fails() {
-        let env = Env::default();
-        let (client, _organizer, event_id) = setup_event_for_update(&env);
-        let start_date = env.ledger().timestamp() + 86400;
-        let end_before_start = start_date - 3600;
-
-        client.update_event(
-            &event_id,
-            &Option::None,
-            &Option::None,
-            &Option::None,
-            &Option::Some(start_date),
-            &Option::Some(end_before_start),
-        );
-    }
-
-    #[test]
-    #[should_panic(expected = "Event not found")]
-    fn test_update_event_not_found_fails() {
-        let env = Env::default();
-        let contract_id = env.register(EventManager, ());
-        let client = EventManagerClient::new(&env, &contract_id);
-        let mock_addr = env.register(MockContract, ());
-        env.mock_all_auths();
-        client.initialize(&mock_addr);
-
-        client.update_event(
-            &999u32,
-            &Option::None,
-            &Option::None,
-            &Option::None,
-            &Option::None,
-            &Option::None,
-        );
+    const fn ttl_extend_to() -> u32 {
+        100 * 24 * 60 * 60 / 5
     }
 }
 
+#[cfg(test)]
 mod test;

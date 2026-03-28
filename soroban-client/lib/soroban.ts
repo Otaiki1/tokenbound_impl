@@ -29,6 +29,16 @@ export interface CreateEventParams {
   paymentToken: string; // contract address for token used for payment
 }
 
+export interface BuyTicketsParams {
+  buyer: string;
+  eventId: number;
+  quantity: bigint;
+}
+
+export function isEventManagerConfigured() {
+  return EVENT_MANAGER_CONTRACT !== "<MISSING_CONTRACT_ID>";
+}
+
 /**
  * Builds, signs (via Freighter) and submits a transaction to create a new
  * event using the EventManager Soroban contract.
@@ -37,7 +47,7 @@ export interface CreateEventParams {
  * `organizer` address must match the source account in the wallet.
  */
 export async function createEvent(params: CreateEventParams) {
-  if (EVENT_MANAGER_CONTRACT === "<MISSING_CONTRACT_ID>") {
+  if (!isEventManagerConfigured()) {
     throw new Error(
       "EVENT_MANAGER_CONTRACT is not configured. Set NEXT_PUBLIC_EVENT_MANAGER_CONTRACT in your env."
     );
@@ -89,6 +99,26 @@ export async function createEvent(params: CreateEventParams) {
   return await server.submitTransaction(signedTxXdr);
 }
 
+export async function buyTickets(params: BuyTicketsParams) {
+  if (!isEventManagerConfigured()) {
+    throw new Error(
+      "EVENT_MANAGER_CONTRACT is not configured. Set NEXT_PUBLIC_EVENT_MANAGER_CONTRACT in your env."
+    );
+  }
+
+  const server = new Server(HORIZON_URL);
+  const sourceAccount = await server.loadAccount(params.buyer);
+  const fee = await server.fetchBaseFee();
+
+  const args = [
+    nativeToScVal(params.buyer, { type: "address" }),
+    nativeToScVal(params.eventId, { type: "u32" }),
+    nativeToScVal(params.quantity, { type: "u128" }),
+  ];
+
+  const operation = Operation.invokeContractFunction({
+    contract: EVENT_MANAGER_CONTRACT,
+    function: "purchase_tickets",
 export interface Event {
   id: number;
   theme: string;
@@ -138,6 +168,10 @@ async function simulateAndInvoke(
     .setTimeout(30)
     .build();
 
+  const txXdr = tx.toXDR();
+  const { signedTxXdr } = await signTransaction(txXdr, {
+    networkPassphrase: NETWORK_PASSPHRASE,
+    address: params.buyer,
   const simResult = await rpc.simulateTransaction(tx);
   if (SorobanRpc.Api.isSimulationError(simResult)) {
     throw new Error(`Simulation failed: ${simResult.error}`);
