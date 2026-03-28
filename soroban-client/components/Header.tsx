@@ -4,17 +4,16 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { Menu, X } from "lucide-react";
+import { useTranslations, useLocale } from "next-intl";
 
 import { useWallet } from "@/contexts/WalletContext";
-import type { WalletProviderId } from '@/contexts/walletAdapters';
-
-const NAV_LINKS = [
-  { href: "/", label: "Home" },
-  { href: "/events", label: "Events" },
-  { href: "/analytics", label: "Analytics" },
-];
+import type { WalletProviderId } from "@/contexts/walletAdapters";
+import LanguageSwitcher from "@/components/LanguageSwitcher";
 
 export default function Header() {
+  const t = useTranslations("nav");
+  const locale = useLocale();
+
   const {
     address,
     providerId,
@@ -26,13 +25,22 @@ export default function Header() {
     disconnect,
     setProviderId,
   } = useWallet();
+
   const pathname = usePathname();
-  const { address, isConnected, isInstalled, connect, disconnect } = useWallet();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isWalletModalOpen, setIsWalletModalOpen] = useState(false);
 
+  const tWallet = useTranslations("wallet");
+
+  const NAV_LINKS = [
+    { href: `/${locale}`, label: t("home") },
+    { href: `/${locale}/events`, label: t("events") },
+    { href: `/${locale}/analytics`, label: t("marketplace") },
+  ];
+
   const openWalletModal = () => setIsWalletModalOpen(true);
   const closeWalletModal = () => setIsWalletModalOpen(false);
+  const closeMenu = () => setIsMenuOpen(false);
 
   const handleProviderSelect = async (selectedProviderId: WalletProviderId) => {
     setProviderId(selectedProviderId);
@@ -59,44 +67,26 @@ export default function Header() {
       console.error("Connect error", err);
       openWalletModal();
     }
-
-    await connect();
   };
 
-  const closeMenu = () => setIsMenuOpen(false);
-
   const handleMenuAction = async (action?: () => Promise<void> | void) => {
-    if (action) {
-      await action();
-    }
-
+    if (action) await action();
     closeMenu();
   };
 
   useEffect(() => {
     document.body.style.overflow = isMenuOpen ? "hidden" : "";
-
-    return () => {
-      document.body.style.overflow = "";
-    };
+    return () => { document.body.style.overflow = ""; };
   }, [isMenuOpen]);
 
-  useEffect(() => {
-    closeMenu();
-  }, [pathname]);
+  useEffect(() => { closeMenu(); }, [pathname]);
 
   return (
     <header className="absolute left-0 right-0 top-0 z-100 flex justify-center px-4 pt-8">
       <div className="flex w-full max-w-6xl items-center justify-between rounded-2xl bg-[#525252] px-6 py-4 shadow-lg backdrop-blur-sm">
-        <Link href="/" className="flex items-center gap-2 text-white">
+        <Link href={`/${locale}`} className="flex items-center gap-2 text-white">
           <div className="flex items-center gap-2 text-2xl font-bold">
-            <svg
-              width="32"
-              height="32"
-              viewBox="0 0 32 32"
-              fill="none"
-              xmlns="http://www.w3.org/2000/svg"
-            >
+            <svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
               <path d="M4 10H14V14H8V22H14V26H4V10Z" fill="white" />
               <path d="M18 10H28V14H22V26H18V10Z" fill="white" />
             </svg>
@@ -106,29 +96,21 @@ export default function Header() {
 
         {/* Desktop Navigation */}
         <nav className="hidden md:flex items-center gap-8">
-          <Link
-            href="#"
-            className="text-gray-200 hover:text-white font-medium transition"
-          >
-            Events
+          <Link href={`/${locale}/events`} className="text-gray-200 hover:text-white font-medium transition">
+            {t("events")}
           </Link>
-          <Link
-            href="#"
-            className="text-gray-200 hover:text-white font-medium transition"
-          >
-            Marketplace
+          <Link href="#" className="text-gray-200 hover:text-white font-medium transition">
+            {t("marketplace")}
           </Link>
           {isConnected && (
-            <Link
-              href="/dashboard"
-              className="text-gray-200 hover:text-white font-medium transition"
-            >
-              Dashboard
+            <Link href={`/${locale}/dashboard`} className="text-gray-200 hover:text-white font-medium transition">
+              {t("dashboard")}
             </Link>
           )}
         </nav>
 
         <div className="hidden items-center gap-4 md:flex">
+          <LanguageSwitcher />
           {isConnected ? (
             <div className="flex items-center gap-4">
               <span className="rounded-md bg-white/10 px-3 py-1 font-mono text-sm text-gray-300">
@@ -138,7 +120,7 @@ export default function Header() {
                 onClick={disconnect}
                 className="rounded-lg border border-gray-400 px-6 py-2 font-medium text-white transition hover:bg-white/10"
               >
-                Disconnect
+                {t("disconnect")}
               </button>
             </div>
           ) : (
@@ -146,23 +128,21 @@ export default function Header() {
               onClick={handleConnect}
               className="rounded-lg border border-gray-400 px-6 py-2 font-medium text-white transition hover:bg-white/10"
             >
-              {isInstalled ? `Connect ${providerName}` : "Select Wallet"}
+              {isInstalled ? t("connect", { provider: providerName }) : t("selectWallet")}
             </button>
           )}
-
-          <Link href="/create-event" className="bg-[#FF5722] hover:bg-[#F4511E] text-white px-6 py-2 rounded-lg font-bold shadow-md transition text-center inline-block">
           <Link
-            href="/create-event"
+            href={`/${locale}/create-event`}
             className="rounded-lg bg-[#FF5722] px-6 py-2 font-bold text-white shadow-md transition hover:bg-[#F4511E]"
           >
-            Create Events
+            {t("createEvent")}
           </Link>
         </div>
 
         <button
-          onClick={() => setIsMenuOpen((current) => !current)}
+          onClick={() => setIsMenuOpen((c) => !c)}
           className="flex items-center justify-center rounded-lg p-2 transition hover:bg-white/10 md:hidden"
-          aria-label="Toggle navigation menu"
+          aria-label={t("toggleMenu")}
           aria-expanded={isMenuOpen}
           aria-controls="mobile-menu"
         >
@@ -170,6 +150,7 @@ export default function Header() {
         </button>
       </div>
 
+      {/* Mobile overlay */}
       <div
         className={`fixed inset-0 z-40 bg-black/50 transition-opacity duration-300 md:hidden ${
           isMenuOpen ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0"
@@ -178,10 +159,11 @@ export default function Header() {
         role="presentation"
       />
 
+      {/* Mobile menu */}
       <nav
         id="mobile-menu"
         role="dialog"
-        aria-label="Mobile navigation menu"
+        aria-label={t("menu")}
         className={`fixed left-0 right-0 top-0 z-50 w-full max-w-full origin-top bg-[#525252] shadow-lg transition-all duration-300 md:hidden ${
           isMenuOpen
             ? "pointer-events-auto translate-y-0 opacity-100"
@@ -190,12 +172,8 @@ export default function Header() {
         style={{ paddingTop: "env(safe-area-inset-top)" }}
       >
         <div className="flex items-center justify-between px-4 py-4">
-          <div className="text-xl font-bold text-white">Menu</div>
-          <button
-            onClick={closeMenu}
-            className="rounded-lg p-2 transition hover:bg-white/10"
-            aria-label="Close menu"
-          >
+          <div className="text-xl font-bold text-white">{t("menu")}</div>
+          <button onClick={closeMenu} className="rounded-lg p-2 transition hover:bg-white/10" aria-label={t("closeMenu")}>
             <X size={24} className="text-white" />
           </button>
         </div>
@@ -209,9 +187,7 @@ export default function Header() {
                 key={link.href}
                 href={link.href}
                 className={`block rounded-2xl px-4 py-3 text-lg font-medium transition ${
-                  pathname === link.href
-                    ? "bg-white/10 text-white"
-                    : "text-gray-200 hover:bg-white/5 hover:text-white"
+                  pathname === link.href ? "bg-white/10 text-white" : "text-gray-200 hover:bg-white/5 hover:text-white"
                 }`}
                 onClick={() => handleMenuAction()}
               >
@@ -232,7 +208,7 @@ export default function Header() {
                   onClick={() => handleMenuAction(disconnect)}
                   className="w-full rounded-2xl border border-gray-400 px-4 py-4 font-medium text-white transition hover:bg-white/10"
                 >
-                  Disconnect
+                  {t("disconnect")}
                 </button>
               </>
             ) : (
@@ -240,19 +216,19 @@ export default function Header() {
                 onClick={() => handleMenuAction(handleConnect)}
                 className="w-full rounded-2xl border border-gray-400 px-4 py-4 font-medium text-white transition hover:bg-white/10"
               >
-                {isInstalled ? `Connect ${providerName}` : "Select Wallet"}
+                {isInstalled ? t("connect", { provider: providerName }) : t("selectWallet")}
               </button>
             )}
-
             <Link
-              href="/create-event"
-              onClick={handleMenuItemClick}
-              className="w-full block bg-[#FF5722] hover:bg-[#F4511E] text-white px-4 py-3 rounded-lg font-bold shadow-md transition text-center"
+              href={`/${locale}/create-event`}
               onClick={() => handleMenuAction()}
               className="block w-full rounded-2xl bg-[#FF5722] px-4 py-4 text-center font-bold text-white shadow-md transition hover:bg-[#F4511E]"
             >
-              Create Events
+              {t("createEvent")}
             </Link>
+            <div className="flex justify-center pt-2">
+              <LanguageSwitcher />
+            </div>
           </div>
         </div>
       </nav>
@@ -262,12 +238,11 @@ export default function Header() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
           <div className="bg-[#252525] rounded-xl p-4 w-full max-w-md text-white shadow-xl">
             <div className="flex justify-between items-center mb-3">
-              <h3 className="text-lg font-bold">Choose Wallet Provider</h3>
+              <h3 className="text-lg font-bold">{tWallet("chooseProvider")}</h3>
               <button onClick={closeWalletModal} className="text-white hover:text-gray-300">
                 <X size={20} />
               </button>
             </div>
-
             <div className="space-y-2">
               {availableProviders.map((provider) => (
                 <button
@@ -285,15 +260,12 @@ export default function Header() {
                       <div className="font-semibold">{provider.name}</div>
                       <div className="text-xs text-gray-300">{provider.description}</div>
                     </div>
-                    <div className="text-xs">{provider.installed ? "Available" : "Install"}</div>
+                    <div className="text-xs">{provider.installed ? tWallet("available") : tWallet("install")}</div>
                   </div>
                 </button>
               ))}
             </div>
-
-            <div className="mt-4 text-sm text-gray-300">
-              Not installed? Click to open the official install page then refresh.
-            </div>
+            <div className="mt-4 text-sm text-gray-300">{tWallet("notInstalled")}</div>
           </div>
         </div>
       )}
