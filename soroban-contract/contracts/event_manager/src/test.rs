@@ -59,7 +59,7 @@ fn make_event(
     tiers: Vec<TierConfig>,
 ) -> (Address, u32) {
     let (organizer, params) = make_params(env, mock_addr, tiers);
-    let event_id = client.create_event(&params);
+    let event_id = client.create_event_with_tiers(&params);
     (organizer, event_id)
 }
 
@@ -72,7 +72,7 @@ fn test_create_event() {
     let organizer = Address::generate(&env);
     let start_date = env.ledger().timestamp() + 86_400;
 
-    let event_id = client.create_event(&CreateEventParams {
+    let event_id = client.create_event_with_tiers(&CreateEventParams {
         organizer: organizer.clone(),
         theme: String::from_str(&env, "Rust Conference 2026"),
         event_type: String::from_str(&env, "Conference"),
@@ -101,7 +101,7 @@ fn test_create_event_past_start_date_fails() {
     let organizer = Address::generate(&env);
     env.ledger().set_timestamp(1_000);
 
-    let result = client.try_create_event(&CreateEventParams {
+    let result = client.try_create_event_with_tiers(&CreateEventParams {
         organizer,
         theme: String::from_str(&env, "Past Event"),
         event_type: String::from_str(&env, "Conference"),
@@ -220,7 +220,7 @@ fn test_claim_refund_free_ticket() {
     let buyer = Address::generate(&env);
     let start = env.ledger().timestamp() + 86_400;
 
-    let event_id = client.create_event(&CreateEventParams {
+    let event_id = client.create_event_with_tiers(&CreateEventParams {
         organizer,
         theme: String::from_str(&env, "Free Event"),
         event_type: String::from_str(&env, "Conference"),
@@ -436,7 +436,7 @@ fn test_batch_purchase_refund_uses_total_paid() {
     let organizer = Address::generate(&env);
     let start = env.ledger().timestamp() + 86_400;
 
-    let event_id = client.create_event(&CreateEventParams {
+    let event_id = client.create_event_with_tiers(&CreateEventParams {
         organizer,
         theme: String::from_str(&env, "Meetup"),
         event_type: String::from_str(&env, "Conference"),
@@ -517,10 +517,8 @@ fn test_withdraw_funds_double_withdrawal() {
     let event = client.get_event(&event_id);
     env.ledger().set_timestamp(event.end_date + 1);
 
-    // First withdrawal succeeds
     client.withdraw_funds(&event_id);
 
-    // Second withdrawal must fail
     let result = client.try_withdraw_funds(&event_id);
     assert!(result.is_err());
 }
@@ -541,7 +539,7 @@ fn test_withdraw_funds_zero_balance() {
 
     let organizer = Address::generate(&env);
     let start = env.ledger().timestamp() + 86_400;
-    let event_id = client.create_event(&CreateEventParams {
+    let event_id = client.create_event_with_tiers(&CreateEventParams {
         organizer,
         theme: String::from_str(&env, "Free Event"),
         event_type: String::from_str(&env, "Conference"),
@@ -569,7 +567,7 @@ fn test_withdraw_funds_after_partial_refunds() {
     let organizer = Address::generate(&env);
     let start = env.ledger().timestamp() + 86_400;
 
-    let event_id = client.create_event(&CreateEventParams {
+    let event_id = client.create_event_with_tiers(&CreateEventParams {
         organizer,
         theme: String::from_str(&env, "Hybrid Event"),
         event_type: String::from_str(&env, "Conference"),
