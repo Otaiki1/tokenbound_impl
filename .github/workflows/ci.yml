@@ -177,7 +177,7 @@ jobs:
         run: |
           cargo build --release --target wasm32-unknown-unknown -p ticket_nft
           cargo build --release --target wasm32-unknown-unknown -p tba_account
-          soroban contract build
+          cargo build --release --target wasm32-unknown-unknown
 
       - name: Optimize contracts
         working-directory: soroban-contract
@@ -236,7 +236,7 @@ jobs:
 
       - name: Build contracts
         working-directory: soroban-contract
-        run: soroban contract build
+        run: cargo build --release --target wasm32-unknown-unknown
 
       - name: Run integration tests
         working-directory: soroban-client

@@ -24,11 +24,11 @@
                 {
                   "u128": {
                     "hi": 0,
-                    "lo": 300
+                    "lo": 200
                   }
                 },
                 {
-                  "bytes": "3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c"
+                  "bytes": "3232323232323232323232323232323232323232323232323232323232323232"
                 }
               ]
             }
@@ -37,6 +37,7 @@
         }
       ]
     ],
+    [],
     []
   ],
   "ledger": {
@@ -97,7 +98,7 @@
                 {
                   "u128": {
                     "hi": 0,
-                    "lo": 300
+                    "lo": 200
                   }
                 }
               ]
@@ -123,7 +124,7 @@
                     {
                       "u128": {
                         "hi": 0,
-                        "lo": 300
+                        "lo": 200
                       }
                     }
                   ]
@@ -157,11 +158,11 @@
                 {
                   "u128": {
                     "hi": 0,
-                    "lo": 300
+                    "lo": 200
                   }
                 },
                 {
-                  "bytes": "3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c"
+                  "bytes": "3232323232323232323232323232323232323232323232323232323232323232"
                 }
               ]
             },
@@ -189,17 +190,17 @@
                     {
                       "u128": {
                         "hi": 0,
-                        "lo": 300
+                        "lo": 200
                       }
                     },
                     {
-                      "bytes": "3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c"
+                      "bytes": "3232323232323232323232323232323232323232323232323232323232323232"
                     }
                   ]
                 },
                 "durability": "persistent",
                 "val": {
-                  "address": "CDZAGYIA5YQFDFM43GAW5LCLW7HC5K3CH7WTQLQNL6QRGE4DCRIJTX25"
+                  "address": "CDKGZJBTAFIRUE7HH5JQV5PCNC4XOJNUV3IOAUOTYV6KVSXVDXNJSADM"
                 }
               }
             },
@@ -312,7 +313,7 @@
       [
         {
           "contract_data": {
-            "contract": "CDZAGYIA5YQFDFM43GAW5LCLW7HC5K3CH7WTQLQNL6QRGE4DCRIJTX25",
+            "contract": "CDKGZJBTAFIRUE7HH5JQV5PCNC4XOJNUV3IOAUOTYV6KVSXVDXNJSADM",
             "key": "ledger_key_contract_instance",
             "durability": "persistent"
           }
@@ -323,7 +324,7 @@
             "data": {
               "contract_data": {
                 "ext": "v0",
-                "contract": "CDZAGYIA5YQFDFM43GAW5LCLW7HC5K3CH7WTQLQNL6QRGE4DCRIJTX25",
+                "contract": "CDKGZJBTAFIRUE7HH5JQV5PCNC4XOJNUV3IOAUOTYV6KVSXVDXNJSADM",
                 "key": "ledger_key_contract_instance",
                 "durability": "persistent",
                 "val": {
@@ -377,7 +378,7 @@
                           ]
                         },
                         "val": {
-                          "bytes": "3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c"
+                          "bytes": "3232323232323232323232323232323232323232323232323232323232323232"
                         }
                       },
                       {
@@ -403,7 +404,7 @@
                         "val": {
                           "u128": {
                             "hi": 0,
-                            "lo": 300
+                            "lo": 200
                           }
                         }
                       },

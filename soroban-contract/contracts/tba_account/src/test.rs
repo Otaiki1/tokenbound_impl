@@ -49,16 +49,20 @@ fn create_test_env() -> (Env, TbaAccountClient<'static>, Address) {
 fn test_initialize() {
     let (env, client, _) = create_test_env();
 
-    let nft_contract = Address::generate(&env);
+    let nft_contract_id = env.register(MockNftContract, ());
+    let nft_client = MockNftContractClient::new(&env, &nft_contract_id);
     let token_id: u128 = 1;
+    let owner = Address::generate(&env);
+    nft_client.set_owner(&token_id, &owner);
+
     let impl_hash = BytesN::from_array(&env, &[1u8; 32]);
     let salt = BytesN::from_array(&env, &[2u8; 32]);
 
     // Initialize should succeed
-    client.initialize(&nft_contract, &token_id, &impl_hash, &salt);
+    client.initialize(&nft_contract_id, &token_id, &impl_hash, &salt);
 
     // Verify initialization
-    assert_eq!(client.token_contract(), nft_contract);
+    assert_eq!(client.token_contract(), nft_contract_id);
     assert_eq!(client.token_id(), token_id);
 }
 
@@ -66,16 +70,19 @@ fn test_initialize() {
 fn test_initialize_twice_fails() {
     let (env, client, _) = create_test_env();
 
-    let nft_contract = Address::generate(&env);
+    let nft_contract_id = env.register(MockNftContract, ());
+    let nft_client = MockNftContractClient::new(&env, &nft_contract_id);
     let token_id: u128 = 1;
+    let owner = Address::generate(&env);
+    nft_client.set_owner(&token_id, &owner);
     let impl_hash = BytesN::from_array(&env, &[1u8; 32]);
     let salt = BytesN::from_array(&env, &[2u8; 32]);
 
     // First initialization
-    client.initialize(&nft_contract, &token_id, &impl_hash, &salt);
+    client.initialize(&nft_contract_id, &token_id, &impl_hash, &salt);
 
     // Second initialization should fail
-    let result = client.try_initialize(&nft_contract, &token_id, &impl_hash, &salt);
+    let result = client.try_initialize(&nft_contract_id, &token_id, &impl_hash, &salt);
     assert!(result.is_err());
 }
 
@@ -147,7 +154,7 @@ fn test_large_token_id_success() {
 
     // token_id larger than u64::MAX (2^64 - 1 = 18446744073709551615)
     // using 2^64
-    let token_id: u128 = 18446744073709551616; 
+    let token_id: u128 = 18446744073709551616;
     let owner = Address::generate(&env);
     nft_client.set_owner(&token_id, &owner);
 
@@ -170,7 +177,7 @@ fn test_large_token_id_success() {
     let val: u32 = result.get(0).unwrap().try_into_val(&env).unwrap();
     assert_eq!(val, 101u32);
     assert_eq!(client.nonce(), 1);
-    
+
     // Also verify owner() directly
     assert_eq!(client.owner(), owner);
 }

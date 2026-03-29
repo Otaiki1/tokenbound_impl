@@ -7,6 +7,8 @@ use soroban_sdk::{
     Symbol, Vec,
 };
 
+use upgradeable as upg;
+
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 #[repr(u32)]
@@ -127,10 +129,12 @@ pub struct EventManager;
 
 #[contractimpl]
 impl EventManager {
-    pub fn initialize(env: Env, ticket_factory: Address) -> Result<(), Error> {
+    pub fn initialize(env: Env, admin: Address, ticket_factory: Address) -> Result<(), Error> {
         if env.storage().instance().has(&DataKey::TicketFactory) {
             return Err(Error::AlreadyInitialized);
         }
+        upg::set_admin(&env, &admin);
+        upg::init_version(&env);
         env.storage()
             .instance()
             .set(&DataKey::TicketFactory, &ticket_factory);
@@ -185,12 +189,8 @@ impl EventManager {
             .unwrap_or(params.ticket_price);
 
         let event_id = Self::get_and_increment_counter(&env)?;
-        let ticket_nft_addr = Self::deploy_ticket_nft(
-            &env,
-            event_id,
-            params.theme.clone(),
-            agg_total,
-        )?;
+        let ticket_nft_addr =
+            Self::deploy_ticket_nft(&env, event_id, params.theme.clone(), agg_total)?;
 
         let event = Event {
             id: event_id,
@@ -349,14 +349,11 @@ impl EventManager {
 
             // Deduct refunded amount from the escrowed balance
             let balance_key = DataKey::EventBalance(event_id);
-            let current_balance: i128 = env
-                .storage()
-                .persistent()
-                .get(&balance_key)
-                .unwrap_or(0);
-            env.storage()
-                .persistent()
-                .set(&balance_key, &current_balance.saturating_sub(purchase.total_paid));
+            let current_balance: i128 = env.storage().persistent().get(&balance_key).unwrap_or(0);
+            env.storage().persistent().set(
+                &balance_key,
+                &current_balance.saturating_sub(purchase.total_paid),
+            );
         }
 
         env.events().publish(
@@ -383,6 +380,7 @@ impl EventManager {
         tier_index: u32,
         quantity: u128,
     ) -> Result<(), Error> {
+        upg::require_not_paused(&env);
         buyer.require_auth();
 
         if quantity == 0 {
@@ -411,7 +409,7 @@ impl EventManager {
         }
 
         let mut tier = tiers.get(tier_index).unwrap();
-        
+
         if tier.sold_quantity + quantity > tier.total_quantity {
             return Err(Error::TierSoldOut);
         }
@@ -667,16 +665,49 @@ impl EventManager {
         Ok(())
     }
 
-    fn try_promote_from_waitlist(env: &Env, event_id: u32) {
-        // Logically we could promote someone here if a slot opens up
-        // For now, we'll just emit an event as a placeholder
-        env.events().publish((Symbol::new(env, "waitlist_checked"),), event_id);
+    // ========== Upgrade / admin functions ==========
+
+    /// Schedule a contract upgrade (timelock: ~24 h). Admin only.
+    pub fn schedule_upgrade(env: Env, new_wasm_hash: BytesN<32>) {
+        upg::schedule_upgrade(&env, new_wasm_hash);
+    }
+
+    /// Cancel a pending upgrade before it is committed. Admin only.
+    pub fn cancel_upgrade(env: Env) {
+        upg::cancel_upgrade(&env);
+    }
+
+    /// Commit a previously scheduled upgrade after the timelock has elapsed. Admin only.
+    pub fn commit_upgrade(env: Env) {
+        upg::commit_upgrade(&env);
+    }
+
+    /// Pause all state-mutating operations. Admin only.
+    pub fn pause(env: Env) {
+        upg::pause(&env);
+    }
+
+    /// Resume normal operations. Admin only.
+    pub fn unpause(env: Env) {
+        upg::unpause(&env);
+    }
+
+    /// Transfer admin rights to a new address. Current admin only.
+    pub fn transfer_admin(env: Env, new_admin: Address) {
+        upg::transfer_admin(&env, new_admin);
+    }
+
+    /// Return the current contract version.
+    pub fn version(env: Env) -> u32 {
+        upg::get_version(&env)
     }
 
     // ========== Private helpers ==========
 
-    fn try_promote_from_waitlist(_env: &Env, _event_id: u32) {
-        // Placeholder: waitlist promotion is handled externally via join_waitlist / return_ticket
+    fn try_promote_from_waitlist(env: &Env, event_id: u32) {
+        // Logically we could promote someone here if a slot opens up
+        // For now, we'll just emit an event as a placeholder
+        env.events().publish((Symbol::new(env, "waitlist_checked"),), event_id);
     }
 
     fn get_and_increment_counter(env: &Env) -> Result<u32, Error> {
@@ -686,9 +717,7 @@ impl EventManager {
             .get(&DataKey::EventCounter)
             .unwrap_or(0);
 
-        let next = current
-            .checked_add(1)
-            .ok_or(Error::CounterOverflow)?;
+        let next = current.checked_add(1).ok_or(Error::CounterOverflow)?;
         env.storage().instance().set(&DataKey::EventCounter, &next);
         env.storage()
             .instance()
@@ -716,23 +745,13 @@ impl EventManager {
         let nft_addr: Address = env.invoke_contract(
             &factory_addr,
             &Symbol::new(env, "deploy_ticket"),
-            soroban_sdk::vec![
-                env,
-                env.current_contract_address().to_val(),
-                salt.to_val(),
-            ],
+            soroban_sdk::vec![env, env.current_contract_address().to_val(), salt.to_val(),],
         );
 
         Ok(nft_addr)
     }
 
-    fn record_purchase(
-        env: &Env,
-        event_id: u32,
-        buyer: Address,
-        quantity: u128,
-        total_paid: i128,
-    ) {
+    fn record_purchase(env: &Env, event_id: u32, buyer: Address, quantity: u128, total_paid: i128) {
         let key = DataKey::BuyerPurchase(event_id, buyer.clone());
         let existing = env.storage().persistent().get::<_, BuyerPurchase>(&key);
 
@@ -764,6 +783,16 @@ impl EventManager {
             Self::extend_persistent_ttl(env, &buyers_key);
         }
 
+        // Accumulate escrow balance
+        if total_paid > 0 {
+            let balance_key = DataKey::EventBalance(event_id);
+            let current: i128 = env.storage().persistent().get(&balance_key).unwrap_or(0);
+            env.storage()
+                .persistent()
+                .set(&balance_key, &current.saturating_add(total_paid));
+            Self::extend_persistent_ttl(env, &balance_key);
+        }
+
         Self::extend_persistent_ttl(env, &key);
     }
 
@@ -771,8 +800,8 @@ impl EventManager {
         if ticket_price <= 0 {
             return 0;
         }
-        let quantity_i128 = i128::try_from(quantity)
-            .unwrap_or_else(|_| panic!("Quantity exceeds pricing range"));
+        let quantity_i128 =
+            i128::try_from(quantity).unwrap_or_else(|_| panic!("Quantity exceeds pricing range"));
         let subtotal = ticket_price
             .checked_mul(quantity_i128)
             .unwrap_or_else(|| panic!("Price overflow"));
@@ -796,6 +825,9 @@ impl EventManager {
             .persistent()
             .extend_ttl(key, Self::ttl_threshold(), Self::ttl_extend_to());
     }
+
+    /// No-op stub — waitlist promotion is a future feature.
+    fn try_promote_from_waitlist(_env: &Env, _event_id: u32) {}
 
     const fn ttl_threshold() -> u32 {
         30 * 24 * 60 * 60 / 5
