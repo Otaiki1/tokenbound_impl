@@ -15,6 +15,9 @@ pub enum Error {
     Unauthorized = 3,
     RecipientAlreadyHasTicket = 4,
     NotInitialized = 5,
+    TransferDisabled = 6,
+    TransferCooldownActive = 7,
+    AddressBlocked = 8,
 }
 
 /// Storage keys for the NFT contract
@@ -37,6 +40,20 @@ pub enum DataKey {
     Balance(Address),
     /// Per-token metadata URI
     TokenUri(u128),
+    /// Global transfer toggle
+    TransfersEnabled,
+    /// Cooldown period in seconds
+    TransferCooldown,
+    /// Timestamp of last transfer: token_id -> timestamp
+    LastTransfer(u128),
+    /// Blocklisted addresses: address -> blocked
+    Blocklist(Address),
+    /// Original purchase price for resale cap: token_id -> price
+    OriginalPrice(u128),
+    /// Transfer fee in basis points (1/10000)
+    TransferFeeBps,
+    /// Organizer address for fees
+    Organizer,
 }
 
 /// Ticket NFT Contract
@@ -59,6 +76,12 @@ impl TicketNft {
         env.storage().instance().set(&DataKey::Name, &name);
         env.storage().instance().set(&DataKey::Symbol, &symbol);
         env.storage().instance().set(&DataKey::BaseUri, &base_uri);
+        
+        // Default restrictions
+        env.storage().instance().set(&DataKey::TransfersEnabled, &true);
+        env.storage().instance().set(&DataKey::TransferCooldown, &0u64);
+        env.storage().instance().set(&DataKey::TransferFeeBps, &0u32);
+        env.storage().instance().set(&DataKey::Organizer, &minter);
 
         // Extend instance TTL
         env.storage()
@@ -128,6 +151,18 @@ impl TicketNft {
             .instance()
             .set(&DataKey::NextTokenId, &(token_id + 1));
 
+        // Record mint time as last transfer
+        env.storage()
+            .persistent()
+            .set(&DataKey::LastTransfer(token_id), &env.ledger().timestamp());
+        
+        // Extend persistent TTL for LastTransfer
+        env.storage().persistent().extend_ttl(
+            &DataKey::LastTransfer(token_id),
+            30 * 24 * 60 * 60 / 5,
+            100 * 24 * 60 * 60 / 5,
+        );
+
         // Extend instance TTL on update
         env.storage()
             .instance()
@@ -189,10 +224,36 @@ impl TicketNft {
             return Err(Error::RecipientAlreadyHasTicket);
         }
 
+        // Check global transfer toggle
+        let enabled: bool = env.storage().instance().get(&DataKey::TransfersEnabled).unwrap_or(true);
+        if !enabled {
+            return Err(Error::TransferDisabled);
+        }
+
+        // Check blocklist
+        if env.storage().persistent().has(&DataKey::Blocklist(from.clone())) || 
+           env.storage().persistent().has(&DataKey::Blocklist(to.clone())) {
+            return Err(Error::AddressBlocked);
+        }
+
+        // Check cooldown
+        let cooldown: u64 = env.storage().instance().get(&DataKey::TransferCooldown).unwrap_or(0);
+        if cooldown > 0 {
+            let last_transfer: u64 = env.storage().persistent().get(&DataKey::LastTransfer(token_id)).unwrap_or(0);
+            if env.ledger().timestamp() < last_transfer + cooldown {
+                return Err(Error::TransferCooldownActive);
+            }
+        }
+
         // Update ownership
         env.storage()
             .persistent()
             .set(&DataKey::Owner(token_id), &to);
+
+        // Update last transfer time
+        env.storage()
+            .persistent()
+            .set(&DataKey::LastTransfer(token_id), &env.ledger().timestamp());
 
         // Update balances
         env.storage()
@@ -290,6 +351,90 @@ impl TicketNft {
         );
 
         Ok(())
+    }
+
+    /// Update transfer restrictions (minter-only)
+    pub fn set_transfer_restrictions(env: Env, enabled: bool, cooldown: u64, fee_bps: u32) -> Result<(), Error> {
+        let minter: Address = env.storage().instance().get(&DataKey::Minter)
+            .ok_or(Error::NotInitialized)?;
+        minter.require_auth();
+
+        env.storage().instance().set(&DataKey::TransfersEnabled, &enabled);
+        env.storage().instance().set(&DataKey::TransferCooldown, &cooldown);
+        env.storage().instance().set(&DataKey::TransferFeeBps, &fee_bps);
+
+        Ok(())
+    }
+
+    /// Set organizer address (minter-only)
+    pub fn set_organizer(env: Env, organizer: Address) -> Result<(), Error> {
+        let minter: Address = env.storage().instance().get(&DataKey::Minter)
+            .ok_or(Error::NotInitialized)?;
+        minter.require_auth();
+
+        env.storage().instance().set(&DataKey::Organizer, &organizer);
+
+        Ok(())
+    }
+
+    /// Get transfer fee bps
+    pub fn get_transfer_fee_bps(env: Env) -> u32 {
+        env.storage().instance().get(&DataKey::TransferFeeBps).unwrap_or(0)
+    }
+
+    /// Get organizer address
+    pub fn get_organizer(env: Env) -> Address {
+        env.storage().instance().get(&DataKey::Organizer).unwrap()
+    }
+
+    /// Add or remove from blocklist (minter-only)
+    pub fn set_blocklist(env: Env, address: Address, blocked: bool) -> Result<(), Error> {
+        let minter: Address = env.storage().instance().get(&DataKey::Minter)
+            .ok_or(Error::NotInitialized)?;
+        minter.require_auth();
+
+        if blocked {
+            env.storage().persistent().set(&DataKey::Blocklist(address.clone()), &true);
+            env.storage().persistent().extend_ttl(
+                &DataKey::Blocklist(address),
+                30 * 24 * 60 * 60 / 5,
+                100 * 24 * 60 * 60 / 5,
+            );
+        } else {
+            env.storage().persistent().remove(&DataKey::Blocklist(address));
+        }
+
+        Ok(())
+    }
+
+    /// Set original price for per-token resale cap (minter-only)
+    pub fn set_original_price(env: Env, token_id: u128, price: i128) -> Result<(), Error> {
+        let minter: Address = env.storage().instance().get(&DataKey::Minter)
+            .ok_or(Error::NotInitialized)?;
+        minter.require_auth();
+
+        if !Self::is_valid(env.clone(), token_id) {
+            return Err(Error::InvalidTokenId);
+        }
+
+        env.storage().persistent().set(&DataKey::OriginalPrice(token_id), &price);
+        env.storage().persistent().extend_ttl(
+            &DataKey::OriginalPrice(token_id),
+            30 * 24 * 60 * 60 / 5,
+            100 * 24 * 60 * 60 / 5,
+        );
+
+        Ok(())
+    }
+
+    /// Get original price of a token
+    pub fn get_original_price(env: Env, token_id: u128) -> i128 {
+        env.storage().persistent().get(&DataKey::OriginalPrice(token_id)).unwrap_or(0)
+    }
+
+    /// Check if an address is blocked
+    pub fn is_blocked(env: Env, address: Address) -> bool {
+        env.storage().persistent().has(&DataKey::Blocklist(address))
     }
 }
 
