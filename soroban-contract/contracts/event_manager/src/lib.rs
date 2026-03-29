@@ -31,9 +31,8 @@ pub enum Error {
     NotABuyer = 16,
     EventSoldOut = 17,
     TicketsBelowSold = 18,
-    ContractPaused = 19,
-    EventNotEnded = 20,
-    FundsAlreadyWithdrawn = 21,
+    EventNotEnded = 19,
+    FundsAlreadyWithdrawn = 20,
 }
 
 #[contracttype]
@@ -143,8 +142,7 @@ impl EventManager {
     }
 
     /// Create a new event with tier support
-    pub fn create_event_with_tiers(env: Env, params: CreateEventParams) -> Result<u32, Error> {
-        upg::require_not_paused(&env);
+    pub fn create_event(env: Env, params: CreateEventParams) -> Result<u32, Error> {
         params.organizer.require_auth();
 
         // Validate basic params
@@ -227,33 +225,6 @@ impl EventManager {
         );
 
         Ok(event_id)
-    }
-
-    /// Legacy create_event for backward compatibility
-    pub fn create_event(
-        env: Env,
-        organizer: Address,
-        theme: String,
-        event_type: String,
-        start_date: u64,
-        end_date: u64,
-        ticket_price: i128,
-        total_tickets: u128,
-        payment_token: Address,
-    ) -> Result<u32, Error> {
-        let tiers = Vec::new(&env);
-        let params = CreateEventParams {
-            organizer,
-            theme,
-            event_type,
-            start_date,
-            end_date,
-            ticket_price,
-            total_tickets,
-            payment_token,
-            tiers,
-        };
-        Self::create_event_with_tiers(env, params)
     }
 
     pub fn get_event(env: Env, event_id: u32) -> Result<Event, Error> {
@@ -445,10 +416,21 @@ impl EventManager {
         let price_per_ticket = tier.price;
         let total_price = Self::calculate_total_price(price_per_ticket, quantity);
 
-        // Handle payment
+        // Handle payment — hold in escrow at contract address
         if total_price > 0 {
             let token_client = soroban_sdk::token::Client::new(&env, &event.payment_token);
-            token_client.transfer(&buyer, &event.organizer, &total_price);
+            token_client.transfer(&buyer, &env.current_contract_address(), &total_price);
+
+            let balance_key = DataKey::EventBalance(event_id);
+            let current_balance: i128 = env
+                .storage()
+                .persistent()
+                .get(&balance_key)
+                .unwrap_or(0);
+            env.storage()
+                .persistent()
+                .set(&balance_key, &(current_balance + total_price));
+            Self::extend_persistent_ttl(&env, &balance_key);
         }
 
         // Mint tickets
@@ -656,9 +638,6 @@ impl EventManager {
             (event_id, event.organizer, balance),
         );
 
-        // Promote the next person from the waitlist now that a slot is free
-        Self::try_promote_from_waitlist(&env, event_id);
-
         Ok(())
     }
 
@@ -701,28 +680,8 @@ impl EventManager {
 
     // ========== Private helpers ==========
 
-    fn validate_event_params(
-        env: &Env,
-        start_date: u64,
-        end_date: u64,
-        ticket_price: i128,
-        total_tickets: u128,
-    ) -> Result<(), Error> {
-        let current_time = env.ledger().timestamp();
-
-        if start_date <= current_time {
-            return Err(Error::InvalidStartDate);
-        }
-        if end_date <= start_date {
-            return Err(Error::InvalidEndDate);
-        }
-        if ticket_price < 0 {
-            return Err(Error::NegativeTicketPrice);
-        }
-        if total_tickets == 0 {
-            return Err(Error::InvalidTicketCount);
-        }
-        Ok(())
+    fn try_promote_from_waitlist(_env: &Env, _event_id: u32) {
+        // Placeholder: waitlist promotion is handled externally via join_waitlist / return_ticket
     }
 
     fn get_and_increment_counter(env: &Env) -> Result<u32, Error> {
@@ -852,3 +811,6 @@ impl EventManager {
         100 * 24 * 60 * 60 / 5
     }
 }
+
+#[cfg(test)]
+mod test;
