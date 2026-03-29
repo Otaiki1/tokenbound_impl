@@ -12,6 +12,8 @@ const NAV_LINKS = [
   { href: "/", label: "Home" },
   { href: "/events", label: "Events" },
   { href: "/marketplace", label: "Marketplace" },
+  { href: "/my-tickets", label: "My Tickets" },
+  { href: "/verifier", label: "Verifier" },
   { href: "/analytics", label: "Analytics" },
 ];
 
