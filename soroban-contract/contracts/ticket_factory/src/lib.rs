@@ -14,7 +14,11 @@
 
 #![no_std]
 
-use soroban_sdk::{contract, contracterror, contractimpl, contracttype, Address, BytesN, Env, IntoVal, Val, Vec};
+use soroban_sdk::{
+    contract, contracterror, contractimpl, contracttype, Address, BytesN, Env, IntoVal, Val, Vec,
+};
+
+use upgradeable as upg;
 
 /// Error codes for the Ticket Factory contract
 #[contracterror]
@@ -52,6 +56,8 @@ impl TicketFactory {
     /// * `admin` - Address that can deploy new ticket contracts
     /// * `ticket_wasm_hash` - WASM hash of the Ticket NFT contract
     pub fn __constructor(env: Env, admin: Address, ticket_wasm_hash: BytesN<32>) {
+        upg::set_admin(&env, &admin);
+        upg::init_version(&env);
         env.storage().instance().set(&DataKey::Admin, &admin);
         env.storage()
             .instance()
@@ -79,7 +85,10 @@ impl TicketFactory {
     /// Requires admin authorization
     pub fn deploy_ticket(env: Env, minter: Address, salt: BytesN<32>) -> Result<Address, Error> {
         // Authorize: only admin can deploy
-        let admin: Address = env.storage().instance().get(&DataKey::Admin)
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
             .ok_or(Error::NotInitialized)?;
         admin.require_auth();
 
@@ -170,7 +179,10 @@ impl TicketFactory {
     /// # Returns
     /// The admin address
     pub fn get_admin(env: Env) -> Result<Address, Error> {
-        let admin: Address = env.storage().instance().get(&DataKey::Admin)
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
             .ok_or(Error::NotInitialized)?;
 
         // Extend instance TTL on read
@@ -179,6 +191,36 @@ impl TicketFactory {
             .extend_ttl(30 * 24 * 60 * 60 / 5, 100 * 24 * 60 * 60 / 5);
 
         Ok(admin)
+    }
+
+    // ── Upgrade / admin ──────────────────────────────────────────────────────
+
+    pub fn schedule_upgrade(env: Env, new_wasm_hash: BytesN<32>) {
+        upg::schedule_upgrade(&env, new_wasm_hash);
+    }
+
+    pub fn cancel_upgrade(env: Env) {
+        upg::cancel_upgrade(&env);
+    }
+
+    pub fn commit_upgrade(env: Env) {
+        upg::commit_upgrade(&env);
+    }
+
+    pub fn pause(env: Env) {
+        upg::pause(&env);
+    }
+
+    pub fn unpause(env: Env) {
+        upg::unpause(&env);
+    }
+
+    pub fn transfer_admin(env: Env, new_admin: Address) {
+        upg::transfer_admin(&env, new_admin);
+    }
+
+    pub fn version(env: Env) -> u32 {
+        upg::get_version(&env)
     }
 }
 
