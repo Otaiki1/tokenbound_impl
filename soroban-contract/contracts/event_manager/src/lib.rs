@@ -7,6 +7,8 @@ use soroban_sdk::{
     Symbol, Vec,
 };
 
+use upgradeable as upg;
+
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 #[repr(u32)]
@@ -29,6 +31,8 @@ pub enum Error {
     NotABuyer = 16,
     EventSoldOut = 17,
     TicketsBelowSold = 18,
+    EventNotEnded = 19,
+    FundsAlreadyWithdrawn = 20,
 }
 
 #[contracttype]
@@ -40,6 +44,9 @@ pub enum DataKey {
     EventBuyers(u32),
     EventTiers(u32),
     BuyerPurchase(u32, Address),
+    EventBalance(u32),
+    FundsWithdrawn(u32),
+    Waitlist(u32),
 }
 
 /// A single ticket tier (e.g. VIP, General, Early Bird)
@@ -121,10 +128,12 @@ pub struct EventManager;
 
 #[contractimpl]
 impl EventManager {
-    pub fn initialize(env: Env, ticket_factory: Address) -> Result<(), Error> {
+    pub fn initialize(env: Env, admin: Address, ticket_factory: Address) -> Result<(), Error> {
         if env.storage().instance().has(&DataKey::TicketFactory) {
             return Err(Error::AlreadyInitialized);
         }
+        upg::set_admin(&env, &admin);
+        upg::init_version(&env);
         env.storage()
             .instance()
             .set(&DataKey::TicketFactory, &ticket_factory);
@@ -133,18 +142,29 @@ impl EventManager {
     }
 
     /// Create a new event with tier support
-    pub fn create_event_with_tiers(env: Env, params: CreateEventParams) -> Result<u32, Error> {
+    pub fn create_event(env: Env, params: CreateEventParams) -> Result<u32, Error> {
         params.organizer.require_auth();
 
-        // Validate basic params
-        if params.start_date <= env.ledger().timestamp() {
-            return Err(Error::InvalidStartDate);
-        }
-        if params.end_date <= params.start_date {
-            return Err(Error::InvalidEndDate);
+        Self::validate_create_schedule(&env, params.start_date, params.end_date)?;
+        Self::validate_bounded_string(&params.theme, Self::MAX_STRING_BYTES)?;
+        Self::validate_bounded_string(&params.event_type, Self::MAX_STRING_BYTES)?;
+        Self::validate_ticket_price(params.ticket_price)?;
+
+        if !params.tiers.is_empty() {
+            if params.tiers.len() > Self::MAX_TICKET_TIERS {
+                return Err(Error::TooManyTicketTiers);
+            }
         }
 
+        Self::enforce_organizer_limits_and_rate(&env, &params.organizer)?;
+
         let resolved_tiers = if params.tiers.is_empty() {
+            if params.total_tickets == 0 {
+                return Err(Error::InvalidTicketCount);
+            }
+            if params.total_tickets > Self::MAX_TICKETS_PER_EVENT {
+                return Err(Error::InvalidTicketCount);
+            }
             let mut v = Vec::new(&env);
             v.push_back(TicketTier {
                 name: String::from_str(&env, "General"),
@@ -156,10 +176,15 @@ impl EventManager {
         } else {
             let mut v = Vec::new(&env);
             for cfg in params.tiers.iter() {
+                Self::validate_bounded_string(&cfg.name, Self::MAX_STRING_BYTES)?;
                 if cfg.price < 0 {
                     return Err(Error::NegativeTicketPrice);
                 }
+                Self::validate_ticket_price(cfg.price)?;
                 if cfg.total_quantity == 0 {
+                    return Err(Error::InvalidTierConfig);
+                }
+                if cfg.total_quantity > Self::MAX_TICKETS_PER_EVENT {
                     return Err(Error::InvalidTierConfig);
                 }
                 v.push_back(TicketTier {
@@ -173,18 +198,17 @@ impl EventManager {
         };
 
         let agg_total: u128 = resolved_tiers.iter().map(|t| t.total_quantity).sum();
+        if agg_total == 0 || agg_total > Self::MAX_TICKETS_PER_EVENT {
+            return Err(Error::InvalidTicketCount);
+        }
         let agg_price = resolved_tiers
             .first()
             .map(|t| t.price)
             .unwrap_or(params.ticket_price);
 
         let event_id = Self::get_and_increment_counter(&env)?;
-        let ticket_nft_addr = Self::deploy_ticket_nft(
-            &env,
-            event_id,
-            params.theme.clone(),
-            agg_total,
-        )?;
+        let ticket_nft_addr =
+            Self::deploy_ticket_nft(&env, event_id, params.theme.clone(), agg_total)?;
 
         let event = Event {
             id: event_id,
@@ -216,37 +240,12 @@ impl EventManager {
 
         env.events().publish(
             (Symbol::new(&env, "event_created"),),
-            (event_id, params.organizer, ticket_nft_addr),
+            (event_id, params.organizer.clone(), ticket_nft_addr),
         );
 
-        Ok(event_id)
-    }
+        Self::commit_organizer_create(&env, &params.organizer);
 
-    /// Legacy create_event for backward compatibility
-    pub fn create_event(
-        env: Env,
-        organizer: Address,
-        theme: String,
-        event_type: String,
-        start_date: u64,
-        end_date: u64,
-        ticket_price: i128,
-        total_tickets: u128,
-        payment_token: Address,
-    ) -> Result<u32, Error> {
-        let tiers = Vec::new(&env);
-        let params = CreateEventParams {
-            organizer,
-            theme,
-            event_type,
-            start_date,
-            end_date,
-            ticket_price,
-            total_tickets,
-            payment_token,
-            tiers,
-        };
-        Self::create_event_with_tiers(env, params)
+        Ok(event_id)
     }
 
     pub fn get_event(env: Env, event_id: u32) -> Result<Event, Error> {
@@ -324,6 +323,8 @@ impl EventManager {
             );
         }
 
+        Self::decrement_organizer_open_events(&env, &event.organizer);
+
         Ok(())
     }
 
@@ -370,14 +371,11 @@ impl EventManager {
 
             // Deduct refunded amount from the escrowed balance
             let balance_key = DataKey::EventBalance(event_id);
-            let current_balance: i128 = env
-                .storage()
-                .persistent()
-                .get(&balance_key)
-                .unwrap_or(0);
-            env.storage()
-                .persistent()
-                .set(&balance_key, &current_balance.saturating_sub(purchase.total_paid));
+            let current_balance: i128 = env.storage().persistent().get(&balance_key).unwrap_or(0);
+            env.storage().persistent().set(
+                &balance_key,
+                &current_balance.saturating_sub(purchase.total_paid),
+            );
         }
 
         env.events().publish(
@@ -397,17 +395,21 @@ impl EventManager {
         Self::purchase_tickets(env, buyer, event_id, tier_index, 1)
     }
 
-   pub fn purchase_tickets(
+    pub fn purchase_tickets(
         env: Env,
         buyer: Address,
         event_id: u32,
         tier_index: u32,
         quantity: u128,
     ) -> Result<(), Error> {
+        upg::require_not_paused(&env);
         buyer.require_auth();
 
         if quantity == 0 {
             return Err(Error::InvalidTicketCount);
+        }
+        if quantity > Self::MAX_PURCHASE_QUANTITY {
+            return Err(Error::PurchaseQuantityTooLarge);
         }
 
         let mut event: Event = env
@@ -432,7 +434,7 @@ impl EventManager {
         }
 
         let mut tier = tiers.get(tier_index).unwrap();
-        
+
         if tier.sold_quantity + quantity > tier.total_quantity {
             return Err(Error::TierSoldOut);
         }
@@ -440,10 +442,21 @@ impl EventManager {
         let price_per_ticket = tier.price;
         let total_price = Self::calculate_total_price(price_per_ticket, quantity);
 
-        // Handle payment
+        // Handle payment — hold in escrow at contract address
         if total_price > 0 {
             let token_client = soroban_sdk::token::Client::new(&env, &event.payment_token);
-            token_client.transfer(&buyer, &event.organizer, &total_price);
+            token_client.transfer(&buyer, &env.current_contract_address(), &total_price);
+
+            let balance_key = DataKey::EventBalance(event_id);
+            let current_balance: i128 = env
+                .storage()
+                .persistent()
+                .get(&balance_key)
+                .unwrap_or(0);
+            env.storage()
+                .persistent()
+                .set(&balance_key, &(current_balance + total_price));
+            Self::extend_persistent_ttl(&env, &balance_key);
         }
 
         // Mint tickets
@@ -542,6 +555,7 @@ impl EventManager {
         let current_time = env.ledger().timestamp();
 
         if let Some(t) = theme {
+            Self::validate_bounded_string(&t, Self::MAX_STRING_BYTES)?;
             event.theme = t;
         }
 
@@ -549,11 +563,15 @@ impl EventManager {
             if p < 0 {
                 return Err(Error::NegativeTicketPrice);
             }
+            Self::validate_ticket_price(p)?;
             event.ticket_price = p;
         }
 
         if let Some(t) = total_tickets {
             if t == 0 {
+                return Err(Error::InvalidTicketCount);
+            }
+            if t > Self::MAX_TICKETS_PER_EVENT {
                 return Err(Error::InvalidTicketCount);
             }
             if t < event.tickets_sold {
@@ -564,22 +582,30 @@ impl EventManager {
 
         let effective_end = end_date.unwrap_or(event.end_date);
         if let Some(s) = start_date {
-            if s < current_time {
+            if s <= current_time {
                 return Err(Error::InvalidStartDate);
             }
             if s >= effective_end {
                 return Err(Error::InvalidEndDate);
             }
+            Self::validate_event_span(s, effective_end)?;
+            Self::validate_start_not_too_far(s, current_time)?;
             event.start_date = s;
         }
 
         let effective_start = start_date.unwrap_or(event.start_date);
         if let Some(e) = end_date {
-            if e < current_time {
+            if e <= current_time {
                 return Err(Error::InvalidEndDate);
             }
             if e <= effective_start {
                 return Err(Error::InvalidEndDate);
+            }
+            // Max duration / far-future start only apply when the event start is still ahead;
+            // otherwise lengthening `end_date` for an in-progress event would falsely fail.
+            if effective_start > current_time {
+                Self::validate_event_span(effective_start, e)?;
+                Self::validate_start_not_too_far(effective_start, current_time)?;
             }
             event.end_date = e;
         }
@@ -648,39 +674,83 @@ impl EventManager {
 
         env.events().publish(
             (Symbol::new(&env, "funds_withdrawn"),),
-            (event_id, event.organizer, balance),
+            (event_id, event.organizer.clone(), balance),
         );
-
-        // Promote the next person from the waitlist now that a slot is free
-        Self::try_promote_from_waitlist(&env, event_id);
 
         Ok(())
     }
 
+    // ========== Upgrade / admin functions ==========
+
+    /// Schedule a contract upgrade (timelock: ~24 h). Admin only.
+    pub fn schedule_upgrade(env: Env, new_wasm_hash: BytesN<32>) {
+        upg::schedule_upgrade(&env, new_wasm_hash);
+    }
+
+    /// Cancel a pending upgrade before it is committed. Admin only.
+    pub fn cancel_upgrade(env: Env) {
+        upg::cancel_upgrade(&env);
+    }
+
+    /// Commit a previously scheduled upgrade after the timelock has elapsed. Admin only.
+    pub fn commit_upgrade(env: Env) {
+        upg::commit_upgrade(&env);
+    }
+
+    /// Pause all state-mutating operations. Admin only.
+    pub fn pause(env: Env) {
+        upg::pause(&env);
+    }
+
+    /// Resume normal operations. Admin only.
+    pub fn unpause(env: Env) {
+        upg::unpause(&env);
+    }
+
+    /// Transfer admin rights to a new address. Current admin only.
+    pub fn transfer_admin(env: Env, new_admin: Address) {
+        upg::transfer_admin(&env, new_admin);
+    }
+
+    /// Return the current contract version.
+    pub fn version(env: Env) -> u32 {
+        upg::get_version(&env)
+    }
+
     // ========== Private helpers ==========
 
-    fn validate_event_params(
-        env: &Env,
-        start_date: u64,
-        end_date: u64,
-        ticket_price: i128,
-        total_tickets: u128,
-    ) -> Result<(), Error> {
-        let current_time = env.ledger().timestamp();
+    fn try_promote_from_waitlist(_env: &Env, _event_id: u32) {
+        // Placeholder: waitlist promotion is handled externally via join_waitlist / return_ticket
+    }
 
-        if start_date <= current_time {
-            return Err(Error::InvalidStartDate);
-        }
-        if end_date <= start_date {
-            return Err(Error::InvalidEndDate);
-        }
-        if ticket_price < 0 {
-            return Err(Error::NegativeTicketPrice);
-        }
-        if total_tickets == 0 {
-            return Err(Error::InvalidTicketCount);
-        }
-        Ok(())
+    fn commit_organizer_create(env: &Env, organizer: &Address) {
+        let count_key = DataKey::OrganizerOpenEventCount(organizer.clone());
+        let open_count: u32 = env.storage().persistent().get(&count_key).unwrap_or(0);
+        env.storage()
+            .persistent()
+            .set(&count_key, &(open_count.saturating_add(1)));
+        Self::extend_persistent_ttl(env, &count_key);
+
+        let ts_key = DataKey::OrganizerLastCreateTs(organizer.clone());
+        env.storage()
+            .instance()
+            .set(&ts_key, &env.ledger().timestamp());
+        env.storage()
+            .instance()
+            .extend_ttl(Self::ttl_threshold(), Self::ttl_extend_to());
+    }
+
+    fn decrement_organizer_open_events(env: &Env, organizer: &Address) {
+        let count_key = DataKey::OrganizerOpenEventCount(organizer.clone());
+        let open_count: u32 = env.storage().persistent().get(&count_key).unwrap_or(0);
+        env.storage()
+            .persistent()
+            .set(&count_key, &open_count.saturating_sub(1));
+        Self::extend_persistent_ttl(env, &count_key);
+    }
+
+    fn try_promote_from_waitlist(_env: &Env, _event_id: u32) {
+        // Waitlist promotion hooks live alongside `join_waitlist` when enabled.
     }
 
     fn get_and_increment_counter(env: &Env) -> Result<u32, Error> {
@@ -690,9 +760,7 @@ impl EventManager {
             .get(&DataKey::EventCounter)
             .unwrap_or(0);
 
-        let next = current
-            .checked_add(1)
-            .ok_or(Error::CounterOverflow)?;
+        let next = current.checked_add(1).ok_or(Error::CounterOverflow)?;
         env.storage().instance().set(&DataKey::EventCounter, &next);
         env.storage()
             .instance()
@@ -720,23 +788,13 @@ impl EventManager {
         let nft_addr: Address = env.invoke_contract(
             &factory_addr,
             &Symbol::new(env, "deploy_ticket"),
-            soroban_sdk::vec![
-                env,
-                env.current_contract_address().to_val(),
-                salt.to_val(),
-            ],
+            soroban_sdk::vec![env, env.current_contract_address().to_val(), salt.to_val(),],
         );
 
         Ok(nft_addr)
     }
 
-    fn record_purchase(
-        env: &Env,
-        event_id: u32,
-        buyer: Address,
-        quantity: u128,
-        total_paid: i128,
-    ) {
+    fn record_purchase(env: &Env, event_id: u32, buyer: Address, quantity: u128, total_paid: i128) {
         let key = DataKey::BuyerPurchase(event_id, buyer.clone());
         let existing = env.storage().persistent().get::<_, BuyerPurchase>(&key);
 
@@ -768,6 +826,16 @@ impl EventManager {
             Self::extend_persistent_ttl(env, &buyers_key);
         }
 
+        // Accumulate escrow balance
+        if total_paid > 0 {
+            let balance_key = DataKey::EventBalance(event_id);
+            let current: i128 = env.storage().persistent().get(&balance_key).unwrap_or(0);
+            env.storage()
+                .persistent()
+                .set(&balance_key, &current.saturating_add(total_paid));
+            Self::extend_persistent_ttl(env, &balance_key);
+        }
+
         Self::extend_persistent_ttl(env, &key);
     }
 
@@ -775,8 +843,8 @@ impl EventManager {
         if ticket_price <= 0 {
             return 0;
         }
-        let quantity_i128 = i128::try_from(quantity)
-            .unwrap_or_else(|_| panic!("Quantity exceeds pricing range"));
+        let quantity_i128 =
+            i128::try_from(quantity).unwrap_or_else(|_| panic!("Quantity exceeds pricing range"));
         let subtotal = ticket_price
             .checked_mul(quantity_i128)
             .unwrap_or_else(|| panic!("Price overflow"));
@@ -801,6 +869,9 @@ impl EventManager {
             .extend_ttl(key, Self::ttl_threshold(), Self::ttl_extend_to());
     }
 
+    /// No-op stub — waitlist promotion is a future feature.
+    fn try_promote_from_waitlist(_env: &Env, _event_id: u32) {}
+
     const fn ttl_threshold() -> u32 {
         30 * 24 * 60 * 60 / 5
     }
@@ -809,3 +880,6 @@ impl EventManager {
         100 * 24 * 60 * 60 / 5
     }
 }
+
+#[cfg(test)]
+mod test;
