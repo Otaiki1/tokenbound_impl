@@ -214,14 +214,12 @@ async function simulateAndInvoke(
 export async function getAllEvents(): Promise<Event[]> {
   const rpc = new SorobanRpc.Server(SOROBAN_RPC_URL);
 
-  // Use a dummy fee account for simulation – we just need a read
   const operation = Operation.invokeContractFunction({
     contract: EVENT_MANAGER_CONTRACT,
     function: "get_all_events",
     args: [],
   });
 
-  // Build a transaction with a placeholder account (won't be submitted)
   const tx = new TransactionBuilder(
     { accountId: () => EVENT_MANAGER_CONTRACT, sequenceNumber: () => "0", incrementSequenceNumber: () => {} } as any,
     { fee: "100", networkPassphrase: NETWORK_PASSPHRASE }
@@ -235,7 +233,7 @@ export async function getAllEvents(): Promise<Event[]> {
     throw new Error(`Simulation failed: ${simResult.error}`);
   }
 
-  const returnVal = (simResult as SorobanRpc.Api.SimulateTransactionSuccessResponse).result?.retval;
+  const returnVal = (simResult as any).result?.retval;
   if (!returnVal) return [];
 
   const raw = scValToNative(returnVal) as any[];
@@ -256,14 +254,14 @@ export async function getAllEvents(): Promise<Event[]> {
 }
 
 /** Cancel an event. Caller must be the organizer. */
-export async function cancelEvent(organizer: string, eventId: number) {
+export async function cancelEvent(organizer: string, eventId: number, signTransactionFn: SignTransactionFn) {
   return simulateAndInvoke(organizer, "cancel_event", [
     nativeToScVal(eventId, { type: "u32" }),
   ]);
 }
 
 /** Update event details. Caller must be the organizer. */
-export async function updateEvent(params: UpdateEventParams) {
+export async function updateEvent(params: UpdateEventParams, signTransactionFn: SignTransactionFn) {
   const toOption = (val: any, type: string) =>
     val !== undefined
       ? nativeToScVal({ Some: nativeToScVal(val, { type }) }, { type: "option" })
@@ -280,14 +278,14 @@ export async function updateEvent(params: UpdateEventParams) {
 }
 
 /** Claim funds after event completion. Caller must be the organizer. */
-export async function claimFunds(organizer: string, eventId: number) {
+export async function claimFunds(organizer: string, eventId: number, signTransactionFn: SignTransactionFn) {
   return simulateAndInvoke(organizer, "withdraw_funds", [
     nativeToScVal(eventId, { type: "u32" }),
   ]);
 }
 
 /** Get attendees (buyers) for an event. */
-export async function getEventAttendees(eventId: number): Promise<string[]> {
+export async function getEventAttendees(eventId: number, readerAccount: string): Promise<string[]> {
   const rpc = new SorobanRpc.Server(SOROBAN_RPC_URL);
 
   const operation = Operation.invokeContractFunction({
@@ -297,7 +295,7 @@ export async function getEventAttendees(eventId: number): Promise<string[]> {
   });
 
   const tx = new TransactionBuilder(
-    { accountId: () => EVENT_MANAGER_CONTRACT, sequenceNumber: () => "0", incrementSequenceNumber: () => {} } as any,
+    { accountId: () => readerAccount, sequenceNumber: () => "0", incrementSequenceNumber: () => {} } as any,
     { fee: "100", networkPassphrase: NETWORK_PASSPHRASE }
   )
     .addOperation(operation)
@@ -307,8 +305,81 @@ export async function getEventAttendees(eventId: number): Promise<string[]> {
   const simResult = await rpc.simulateTransaction(tx);
   if (SorobanRpc.Api.isSimulationError(simResult)) return [];
 
-  const returnVal = (simResult as SorobanRpc.Api.SimulateTransactionSuccessResponse).result?.retval;
+  const returnVal = (simResult as any).result?.retval;
   if (!returnVal) return [];
 
   return scValToNative(returnVal) as string[];
+}
+
+/** Get balance of a user in a specific NFT contract. */
+export async function getBalance(contractId: string, address: string): Promise<bigint> {
+  const rpc = new SorobanRpc.Server(SOROBAN_RPC_URL);
+
+  const operation = Operation.invokeContractFunction({
+    contract: contractId,
+    function: "balance_of",
+    args: [nativeToScVal(address, { type: "address" })],
+  });
+
+  const tx = new TransactionBuilder(
+    { accountId: () => address, sequenceNumber: () => "0", incrementSequenceNumber: () => {} } as any,
+    { fee: "100", networkPassphrase: NETWORK_PASSPHRASE }
+  )
+    .addOperation(operation)
+    .setTimeout(30)
+    .build();
+
+  const simResult = await rpc.simulateTransaction(tx);
+  if (SorobanRpc.Api.isSimulationError(simResult)) return BigInt(0);
+
+  const returnVal = (simResult as any).result?.retval;
+  if (!returnVal) return BigInt(0);
+
+  return BigInt(scValToNative(returnVal));
+}
+
+/** Get all tickets (events) a user owns. */
+export async function getUserTickets(address: string): Promise<Event[]> {
+  const allEvents = await getAllEvents();
+  const results: Event[] = [];
+  
+  for (const event of allEvents) {
+    if (!event.ticket_nft_addr || event.ticket_nft_addr === "") continue;
+    try {
+      const balance = await getBalance(event.ticket_nft_addr, address);
+      if (balance > BigInt(0)) {
+        results.push(event);
+      }
+    } catch (e) {
+      console.error(`Error checking balance for ${event.id}:`, e);
+    }
+  }
+  return results;
+}
+
+/** Get token ID for a user. */
+export async function getTokenId(contractId: string, address: string): Promise<bigint> {
+  const rpc = new SorobanRpc.Server(SOROBAN_RPC_URL);
+
+  const operation = Operation.invokeContractFunction({
+    contract: contractId,
+    function: "get_token_id",
+    args: [nativeToScVal(address, { type: "address" })],
+  });
+
+  const tx = new TransactionBuilder(
+    { accountId: () => address, sequenceNumber: () => "0", incrementSequenceNumber: () => {} } as any,
+    { fee: "100", networkPassphrase: NETWORK_PASSPHRASE }
+  )
+    .addOperation(operation)
+    .setTimeout(30)
+    .build();
+
+  const simResult = await rpc.simulateTransaction(tx);
+  if (SorobanRpc.Api.isSimulationError(simResult)) return BigInt(0);
+
+  const returnVal = (simResult as any).result?.retval;
+  if (!returnVal) return BigInt(0);
+
+  return BigInt(scValToNative(returnVal));
 }
