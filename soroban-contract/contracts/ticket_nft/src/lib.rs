@@ -4,7 +4,7 @@
 
 #![no_std]
 
-use soroban_sdk::{contract, contracterror, contractimpl, contracttype, Address, Env};
+use soroban_sdk::{contract, contracterror, contractimpl, contracttype, Address, Env, String};
 
 // Error handling
 #[contracterror]
@@ -25,10 +25,18 @@ pub enum DataKey {
     Minter,
     /// Next token ID to mint
     NextTokenId,
+    /// Contract name
+    Name,
+    /// Contract symbol
+    Symbol,
+    /// Base URI for metadata
+    BaseUri,
     /// Token ownership: token_id -> owner
     Owner(u128),
     /// Balance: owner -> count
     Balance(Address),
+    /// Per-token metadata URI
+    TokenUri(u128),
 }
 
 /// Ticket NFT Contract
@@ -45,9 +53,12 @@ impl TicketNft {
     /// # Arguments
     /// * `env` - The contract environment
     /// * `minter` - Address that can mint new tickets
-    pub fn __constructor(env: Env, minter: Address) {
+    pub fn __constructor(env: Env, minter: Address, name: String, symbol: String, base_uri: String) {
         env.storage().instance().set(&DataKey::Minter, &minter);
         env.storage().instance().set(&DataKey::NextTokenId, &1u128);
+        env.storage().instance().set(&DataKey::Name, &name);
+        env.storage().instance().set(&DataKey::Symbol, &symbol);
+        env.storage().instance().set(&DataKey::BaseUri, &base_uri);
 
         // Extend instance TTL
         env.storage()
@@ -234,6 +245,51 @@ impl TicketNft {
             .instance()
             .get(&DataKey::Minter)
             .ok_or(Error::NotInitialized)
+    }
+
+    /// Get the contract name
+    pub fn name(env: Env) -> String {
+        env.storage().instance().get(&DataKey::Name).unwrap()
+    }
+
+    /// Get the contract symbol
+    pub fn symbol(env: Env) -> String {
+        env.storage().instance().get(&DataKey::Symbol).unwrap()
+    }
+
+    /// Get the token URI for a specific token
+    pub fn token_uri(env: Env, token_id: u128) -> String {
+        if !Self::is_valid(env.clone(), token_id) {
+            panic!("Invalid token ID");
+        }
+
+        if let Some(uri) = env.storage().persistent().get(&DataKey::TokenUri(token_id)) {
+            uri
+        } else {
+            env.storage().instance().get(&DataKey::BaseUri).unwrap()
+        }
+    }
+
+    /// Set the token URI for a specific token (minter-only)
+    pub fn set_token_uri(env: Env, token_id: u128, uri: String) -> Result<(), Error> {
+        let minter: Address = env.storage().instance().get(&DataKey::Minter)
+            .ok_or(Error::NotInitialized)?;
+        minter.require_auth();
+
+        if !Self::is_valid(env.clone(), token_id) {
+            return Err(Error::InvalidTokenId);
+        }
+
+        env.storage().persistent().set(&DataKey::TokenUri(token_id), &uri);
+        
+        // Extend persistent TTL for URI
+        env.storage().persistent().extend_ttl(
+            &DataKey::TokenUri(token_id),
+            30 * 24 * 60 * 60 / 5,
+            100 * 24 * 60 * 60 / 5,
+        );
+
+        Ok(())
     }
 }
 
