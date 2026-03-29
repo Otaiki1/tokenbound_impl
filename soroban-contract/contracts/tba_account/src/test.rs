@@ -58,8 +58,10 @@ fn test_initialize() {
     let impl_hash = BytesN::from_array(&env, &[1u8; 32]);
     let salt = BytesN::from_array(&env, &[2u8; 32]);
 
+    // Initialize should succeed
     client.initialize(&nft_contract_id, &token_id, &impl_hash, &salt);
 
+    // Verify initialization
     assert_eq!(client.token_contract(), nft_contract_id);
     assert_eq!(client.token_id(), token_id);
 }

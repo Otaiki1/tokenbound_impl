@@ -33,6 +33,7 @@ pub enum Error {
     TicketsBelowSold = 18,
     EventNotEnded = 19,
     FundsAlreadyWithdrawn = 20,
+    EventNotSoldOut = 21,
 }
 
 #[contracttype]
@@ -44,9 +45,9 @@ pub enum DataKey {
     EventBuyers(u32),
     EventTiers(u32),
     BuyerPurchase(u32, Address),
+    Waitlist(u32),
     EventBalance(u32),
     FundsWithdrawn(u32),
-    Waitlist(u32),
 }
 
 /// A single ticket tier (e.g. VIP, General, Early Bird)
@@ -468,17 +469,14 @@ impl EventManager {
             );
         }
 
-        // Update tier sold count
-        tier.sold_quantity += quantity;
+        // Update tier sold count BEFORE external calls (minting)
+        tier.sold_quantity = tier.sold_quantity.checked_add(quantity).ok_or(Error::CounterOverflow)?;
         tiers.set(tier_index, tier);
         env.storage()
             .persistent()
             .set(&DataKey::EventTiers(event_id), &tiers);
 
-        // Record purchase
-        Self::record_purchase(&env, event_id, buyer.clone(), quantity, total_price);
-
-        // Update aggregate event counters
+        // Update aggregate event counters BEFORE external calls
         event.tickets_sold = event
             .tickets_sold
             .checked_add(quantity)
@@ -488,6 +486,18 @@ impl EventManager {
             .persistent()
             .set(&DataKey::Event(event_id), &event);
         Self::extend_persistent_ttl(&env, &DataKey::Event(event_id));
+
+        // Mint tickets (External cross-contract call)
+        for _ in 0..quantity {
+            env.invoke_contract::<u128>(
+                &event.ticket_nft_addr,
+                &Symbol::new(&env, "mint_ticket_nft"),
+                soroban_sdk::vec![&env, buyer.clone().into_val(&env)],
+            );
+        }
+
+        // Record purchase details
+        Self::record_purchase(&env, event_id, buyer.clone(), quantity, total_price);
 
         env.events().publish(
             (Symbol::new(&env, "ticket_purchased"),),
@@ -677,6 +687,20 @@ impl EventManager {
             (event_id, event.organizer.clone(), balance),
         );
 
+    pub fn join_waitlist(env: Env, buyer: Address, event_id: u32) -> Result<(), Error> {
+        buyer.require_auth();
+        let event: Event = env.storage().persistent().get(&DataKey::Event(event_id)).ok_or(Error::EventNotFound)?;
+        
+        if event.tickets_sold < event.total_tickets {
+             // Event not sold out, shouldn't join waitlist
+             return Err(Error::EventNotSoldOut);
+        }
+
+        let key = DataKey::Waitlist(event_id);
+        let mut waitlist: Vec<Address> = env.storage().persistent().get(&key).unwrap_or(Vec::new(&env));
+        waitlist.push_back(buyer);
+        env.storage().persistent().set(&key, &waitlist);
+        Self::extend_persistent_ttl(&env, &key);
         Ok(())
     }
 
@@ -719,8 +743,10 @@ impl EventManager {
 
     // ========== Private helpers ==========
 
-    fn try_promote_from_waitlist(_env: &Env, _event_id: u32) {
-        // Placeholder: waitlist promotion is handled externally via join_waitlist / return_ticket
+    fn try_promote_from_waitlist(env: &Env, event_id: u32) {
+        // Logically we could promote someone here if a slot opens up
+        // For now, we'll just emit an event as a placeholder
+        env.events().publish((Symbol::new(env, "waitlist_checked"),), event_id);
     }
 
     fn commit_organizer_create(env: &Env, organizer: &Address) {

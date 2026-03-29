@@ -115,8 +115,9 @@ impl TicketFactory {
             .storage()
             .instance()
             .get(&DataKey::TotalTickets)
-            .unwrap_or(0)
-            + 1;
+            .unwrap_or(0u32)
+            .checked_add(1)
+            .unwrap();
 
         // Store event_id -> contract address mapping in persistent storage
         env.storage()
