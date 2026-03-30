@@ -52,6 +52,17 @@ pub enum DataKey {
     EventOrganizer(u32),
     TokenEvent(u128),
     Admin,
+    Name,
+    Symbol,
+    BaseUri,
+    TransfersEnabled,
+    TransferCooldown,
+    TransferFeeBps,
+    Organizer,
+    LastTransfer(u128),
+    Blocklist(Address),
+    OriginalPrice(u128),
+    TokenUri(u128),
 }
 
 #[contract]
@@ -64,8 +75,8 @@ impl TicketNft {
     /// # Arguments
     /// * `env` - The contract environment
     /// * `minter` - Address that can mint new tickets
-    pub fn __constructor(env: Env, minter: Address) {
-        upg::set_admin(&env, &minter);
+    pub fn __constructor(env: Env, minter: Address, admin: Address, name: String, symbol: String, base_uri: String) {
+        upg::set_admin(&env, &admin);
         upg::init_version(&env);
         env.storage().instance().set(&DataKey::Minter, &minter);
         env.storage().instance().set(&DataKey::Admin, &admin);
@@ -86,18 +97,16 @@ impl TicketNft {
     }
 
     /// Mint a new ticket NFT to the recipient
-    ///
-    /// # Arguments
-    /// * `env` - The contract environment
-    /// * `recipient` - Address to receive the ticket
-    ///
-    /// # Returns
-    /// The token ID of the minted ticket
-    ///
-    /// # Errors
-    /// - If caller is not the minter
-    /// - If recipient already has a ticket
-    pub fn mint_ticket_nft(env: Env, recipient: Address) -> Result<u128, Error> {
+    pub fn mint_ticket_nft(
+        env: Env, 
+        recipient: Address, 
+        name: String, 
+        description: String, 
+        image: String, 
+        event_id: u32, 
+        tier: String,
+        off_chain_uri: Option<String>
+    ) -> Result<u128, Error> {
         // Authorize: only minter can mint
         let minter: Address = env
             .storage()
@@ -429,19 +438,6 @@ impl TicketNft {
         env.storage().instance().get(&DataKey::Symbol).unwrap()
     }
 
-    /// Get the token URI for a specific token
-    pub fn token_uri(env: Env, token_id: u128) -> String {
-        if !Self::is_valid(env.clone(), token_id) {
-            panic!("Invalid token ID");
-        }
-
-        if let Some(uri) = env.storage().persistent().get(&DataKey::TokenUri(token_id)) {
-            uri
-        } else {
-            env.storage().instance().get(&DataKey::BaseUri).unwrap()
-        }
-    }
-
     /// Set the token URI for a specific token (minter-only)
     pub fn set_token_uri(env: Env, token_id: u128, uri: String) -> Result<(), Error> {
         let minter: Address = env.storage().instance().get(&DataKey::Minter)
@@ -551,4 +547,6 @@ impl TicketNft {
 
 #[cfg(test)]
 mod test;
+#[cfg(test)]
+mod fuzz;
 
