@@ -152,9 +152,7 @@ impl TbaAccount {
         upg::init_version(&env);
 
         // Extend instance TTL
-        env.storage()
-            .instance()
-            .extend_ttl(30 * 24 * 60 * 60 / 5, 100 * 24 * 60 * 60 / 5);
+        upg::extend_instance_ttl(&env);
 
         Ok(())
     }
@@ -214,9 +212,7 @@ impl TbaAccount {
         let nonce = increment_nonce(&env);
 
         // Extend instance TTL on activity
-        env.storage()
-            .instance()
-            .extend_ttl(30 * 24 * 60 * 60 / 5, 100 * 24 * 60 * 60 / 5);
+        upg::extend_instance_ttl(&env);
 
         // Emit transaction executed event
         let event = TransactionExecutedEvent {
