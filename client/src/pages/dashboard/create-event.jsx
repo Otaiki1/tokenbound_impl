@@ -71,7 +71,7 @@ const CreateEvent = () => {
                                 />
                             </div>
                             <div className="space-y-2 flex flex-col">
-                                <label htmlFor="organizer" className="text-deep-blue">Expected Attendee</label>
+                                <label htmlFor="total_ticket" className="text-deep-blue">Expected Attendee</label>
                                 <input 
                                     id="total_ticket" placeholder="100" type='number' 
                                     name='total_ticket'
@@ -117,7 +117,7 @@ const CreateEvent = () => {
                                 />
                             </div>
                             <div className="space-y-2 flex flex-col">
-                                <label htmlFor="start-date" className="text-deep-blue">End Date</label>
+                                <label htmlFor="end-date" className="text-deep-blue">End Date</label>
                                 <input 
                                     type='date' 
                                     name='endTime'

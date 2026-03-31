@@ -16,7 +16,7 @@ import TicketDialog from '../../Components/dashboard/ticket-dialog';
 import { cairo } from 'starknet';
 import strkAbi from '../../Abis/strkAbi.json'
 import { toast } from 'sonner';
-
+import SEO from '../../Components/shared/seo';
 
 const EventDetails = () => {
     const [formData, setFormData] = useState({
@@ -60,6 +60,43 @@ const EventDetails = () => {
     const startDateResponse = epochToDatetime(String(data?.start_date))
     const endDateResponse = epochToDatetime(String(data?.end_date))
 
+    const eventName = data ? feltToString(data.theme) : '';
+    const eventLocation = data ? feltToString(data.event_type) : '';
+
+    const eventSchema = data && !isLoading ? {
+      "@context": "https://schema.org",
+      "@type": "Event",
+      "name": eventName,
+      "startDate": new Date(Number(data?.start_date) * 1000).toISOString(),
+      "endDate": new Date(Number(data?.end_date) * 1000).toISOString(),
+      "eventAttendanceMode": "https://schema.org/OfflineEventAttendanceMode",
+      "eventStatus": data?.is_canceled ? "https://schema.org/EventCancelled" : "https://schema.org/EventScheduled",
+      "location": {
+        "@type": "Place",
+        "name": eventLocation,
+        "address": {
+          "@type": "PostalAddress",
+          "addressLocality": eventLocation
+        }
+      },
+      "image": [
+        "https://crowdpass.live/assets/about-image-podcast.jpg"
+      ],
+      "description": `Join us for ${eventName} at ${eventLocation}.`,
+      "offers": {
+        "@type": "Offer",
+        "url": `https://crowdpass.live/events/${id}`,
+        "price": String(data?.ticket_price || 0).slice(0, -18) || "0",
+        "priceCurrency": "STRK",
+        "availability": "https://schema.org/InStock",
+        "validFrom": new Date().toISOString()
+      },
+      "organizer": {
+        "@type": "Organization",
+        "name": `0x${(data?.organizer)?.toString(16)}`,
+        "url": "https://crowdpass.live"
+      }
+    } : null;
 
     const handleApprove = async (e) => {
         e.preventDefault()
@@ -216,6 +253,16 @@ const EventDetails = () => {
 
     return (
         <Layout>
+            {data && !isLoading && (
+              <SEO 
+                title={eventName}
+                description={`Join us for ${eventName} at ${eventLocation}.`}
+                url={`https://crowdpass.live/events/${id}`}
+                image="https://crowdpass.live/assets/about-image-podcast.jpg"
+                type="article"
+                schema={eventSchema}
+              />
+            )}
             <h1 className='text-3xl text-deep-blue font-semibold'>
                 Event Details
             </h1>
@@ -229,6 +276,7 @@ const EventDetails = () => {
                             <img
                                 src="/assets/about-image-podcast.jpg"
                                 className="absolute inset-0 w-full h-[300px] object-cover "
+                                alt="Event banner background"
                             />
                             <div className="absolute inset-0 bg-black/50 z-10" />
                             <div className="relative z-20 h-full flex flex-col items-center justify-center px-4 sm:px-6 lg:px-8 text-center text-base-white">
