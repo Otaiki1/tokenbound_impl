@@ -9,10 +9,15 @@
 
 #![no_std]
 
-use soroban_sdk::{contracttype, symbol_short, Address, BytesN, Env, Symbol};
+use soroban_sdk::{contracttype, symbol_short, Address, BytesN, Env, IntoVal, Symbol, Val};
 
 // ~24 hours at 5-second ledger close time
 pub const UPGRADE_DELAY_LEDGERS: u32 = 17_280;
+pub const LEDGER_SECONDS: u32 = 5;
+pub const SECONDS_PER_DAY: u32 = 86_400;
+pub const LEDGERS_PER_DAY: u32 = SECONDS_PER_DAY / LEDGER_SECONDS;
+pub const DEFAULT_TTL_THRESHOLD_LEDGERS: u32 = 30 * LEDGERS_PER_DAY;
+pub const DEFAULT_TTL_EXTEND_TO_LEDGERS: u32 = 100 * LEDGERS_PER_DAY;
 
 #[contracttype]
 #[derive(Clone)]
@@ -160,4 +165,29 @@ pub fn transfer_admin(env: &Env, new_admin: Address) {
     set_admin(env, &new_admin);
     env.events()
         .publish((Symbol::new(env, "admin_changed"),), (old_admin, new_admin));
+}
+
+// ── Storage TTL helpers ──────────────────────────────────────────────────────
+
+pub fn default_ttl_threshold() -> u32 {
+    DEFAULT_TTL_THRESHOLD_LEDGERS
+}
+
+pub fn default_ttl_extend_to() -> u32 {
+    DEFAULT_TTL_EXTEND_TO_LEDGERS
+}
+
+pub fn extend_instance_ttl(env: &Env) {
+    env.storage()
+        .instance()
+        .extend_ttl(default_ttl_threshold(), default_ttl_extend_to());
+}
+
+pub fn extend_persistent_ttl<K>(env: &Env, key: &K)
+where
+    K: IntoVal<Env, Val>,
+{
+    env.storage()
+        .persistent()
+        .extend_ttl(key, default_ttl_threshold(), default_ttl_extend_to());
 }

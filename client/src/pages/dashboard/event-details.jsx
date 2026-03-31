@@ -26,9 +26,7 @@ import TicketDialog from '../../Components/dashboard/ticket-dialog';
 import { cairo } from 'starknet';
 import strkAbi from '../../Abis/strkAbi.json';
 import { toast } from 'sonner';
-import { EventDetailSkeleton } from '../../Components/dashboard/event-detail-skeleton';
-import { ErrorState } from '../../Components/shared/error-state';
-import { TransactionStatus } from '../../Components/shared/transaction-status';
+import SEO from '../../Components/shared/seo';
 
 const EventDetails = () => {
   const [formData, setFormData] = useState({
@@ -102,24 +100,85 @@ const EventDetails = () => {
       toast.dismiss(toast1);
       toast.error(error.message);
     }
-  };
 
-  const handleSubmit = async e => {
-    e.preventDefault();
-    setTxStatus({ status: 'pending', message: 'Purchasing ticket...' });
-    const toast1 = toast.loading('Purchasing ticket');
+    const [tba, setTba] = useState('')
+    const { id } = useParams()
+    const { address, account, contract, eventAbi, contractAddr, eventContract, readEventContract, strkContract } = useContext(KitContext)
 
-    try {
-      // await strkContract.approve(contract?.address, cairo.uint256(2))
-      handleApprove();
-      await eventContract.purchase_ticket(id);
-      setTxStatus({ status: 'success', message: 'Ticket purchase successful!' });
-      toast.dismiss(toast1);
-      toast.success('Ticket purchase successful');
-    } catch (error) {
-      setTxStatus({ status: 'error', message: error.message });
-      toast.dismiss(toast1);
-      toast.error(error.message);
+
+    const { data, isError, isLoading, error } = useContractRead({
+        functionName: "get_event",
+        args: [id],
+        abi: eventAbi,
+        address: contractAddr,
+        watch: true,
+    });
+
+    const { data: userTicket, isError: userTicketIsError, isLoading: userTicketIsLoading, error: userTicketError } = useContractRead({
+        functionName: "user_event_ticket",
+        args: [id, address],
+        abi: eventAbi,
+        address: contractAddr,
+        watch: true,
+    });
+
+    console.log(data)
+    console.log(Number(userTicket))
+
+    const startDateResponse = epochToDatetime(String(data?.start_date))
+    const endDateResponse = epochToDatetime(String(data?.end_date))
+
+    const eventName = data ? feltToString(data.theme) : '';
+    const eventLocation = data ? feltToString(data.event_type) : '';
+
+    const eventSchema = data && !isLoading ? {
+      "@context": "https://schema.org",
+      "@type": "Event",
+      "name": eventName,
+      "startDate": new Date(Number(data?.start_date) * 1000).toISOString(),
+      "endDate": new Date(Number(data?.end_date) * 1000).toISOString(),
+      "eventAttendanceMode": "https://schema.org/OfflineEventAttendanceMode",
+      "eventStatus": data?.is_canceled ? "https://schema.org/EventCancelled" : "https://schema.org/EventScheduled",
+      "location": {
+        "@type": "Place",
+        "name": eventLocation,
+        "address": {
+          "@type": "PostalAddress",
+          "addressLocality": eventLocation
+        }
+      },
+      "image": [
+        "https://crowdpass.live/assets/about-image-podcast.jpg"
+      ],
+      "description": `Join us for ${eventName} at ${eventLocation}.`,
+      "offers": {
+        "@type": "Offer",
+        "url": `https://crowdpass.live/events/${id}`,
+        "price": String(data?.ticket_price || 0).slice(0, -18) || "0",
+        "priceCurrency": "STRK",
+        "availability": "https://schema.org/InStock",
+        "validFrom": new Date().toISOString()
+      },
+      "organizer": {
+        "@type": "Organization",
+        "name": `0x${(data?.organizer)?.toString(16)}`,
+        "url": "https://crowdpass.live"
+      }
+    } : null;
+
+    const handleApprove = async (e) => {
+        e.preventDefault()
+        const toast1 = toast.loading('Approving App')
+
+        try {
+
+            await strkContract.approve(contract?.address, cairo.uint256(data?.ticket_price))
+            toast.dismiss(toast1);
+            toast.success("App approval successful")
+        } catch (error) {
+            toast.dismiss(toast1);
+            toast.error(error.message)
+        }
     }
   };
 
@@ -237,209 +296,207 @@ const EventDetails = () => {
     } catch (error) {
       console.log(error);
     }
-  };
 
-  console.log(tba);
+    console.log(tokenbound)
 
-  return (
-    <Layout>
-      <h1 className="text-3xl text-deep-blue font-semibold">Event Details</h1>
-      {isLoading ? (
-        <EventDetailSkeleton />
-      ) : isError ? (
-        <ErrorState
-          title="Failed to load event"
-          message={error?.message || 'Could not retrieve event details. Please try again.'}
-        />
-      ) : (
-        <Card className="shadow-2xl pb-6 my-4 rounded-xl">
-          <div className="flex flex-col mx-10 mt-10">
-            <section className="rounded-2xl relative w-full h-[200px] sm:h-[300px] lg:h-[300px] overflow-hidden">
-              <img
-                src="/assets/about-image-podcast.jpg"
-                className="absolute inset-0 w-full h-[300px] object-cover "
+    // get account status
+    const getStatus = async () => {
+        try {
+            const status = await tokenbound.checkAccountDeployment({
+                tokenContract: `0x${data?.event_ticket_addr.toString(16)}`,
+                tokenId: userTicket,
+                salt: userTicket
+            })
+
+            if (status) {
+                console.log(status)
+            }
+        } catch (error) {
+            console.log(error)
+        }
+    }
+
+
+    const deployAccount = async () => {
+        try {
+            await tokenbound.createAccount({
+                tokenContract: `0x${data?.event_ticket_addr.toString(16)}`,
+                tokenId: userTicket,
+                salt: userTicket
+            })
+        }
+        catch (error) {
+            console.log(error)
+        }
+    }
+
+    useEffect(() => {
+        getStatus()
+    }, [])
+
+    const getAccount = async () => {
+        try {
+            const account = await tokenbound.getAccount({
+                tokenContract: `0x${data?.event_ticket_addr.toString(16)}`,
+                tokenId: userTicket,
+                salt: userTicket
+            })
+
+            console.log(`0x${account.toString(16)}`)
+            setTba(`0x${account.toString(16)}`)
+        } catch (error) {
+            console.log(error)
+        }
+
+    }
+
+    console.log(tba)
+
+    return (
+        <Layout>
+            {data && !isLoading && (
+              <SEO 
+                title={eventName}
+                description={`Join us for ${eventName} at ${eventLocation}.`}
+                url={`https://crowdpass.live/events/${id}`}
+                image="https://crowdpass.live/assets/about-image-podcast.jpg"
+                type="article"
+                schema={eventSchema}
               />
-              <div className="absolute inset-0 bg-black/50 z-10" />
-              <div className="relative z-20 h-full flex flex-col items-center justify-center px-4 sm:px-6 lg:px-8 text-center text-base-white">
-                <h1 className="text-3xl sm:text-4xl lg:text-5xl font-bold tracking-tight">
-                  {feltToString(data?.theme)}
-                </h1>
-                <p className="mt-4 max-w-3xl text-lg sm:text-xl mb-6">
-                  Join us for a day of inspiring talks, networking, and exploring the latest trends
-                  in the industry.
-                </p>
-                <div className="flex items-center gap-2 sm:gap-2">
-                  <User className="w-6 h-4 text-muted-foreground font-bold text-white" />
-                  <div className="flex gap-3 items-start">
-                    <div className="text-[12px] font-bold  text-white">Organizer </div>
-                    <div className="text-[12px]  text-white">
-                      0x{(data?.organizer).toString(16)}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </section>
-            <div className="">
-              <div className="flex justify-evenly items-start">
-                <div className="flex flex-col gap-6 mt-4 w-[50%]">
-                  <div className="flex items-start gap-4 sm:gap-6">
-                    <CalendarIcon className="w-6 h-6 text-muted-foreground text-[#777D7F] " />
-                    <div className="flex flex-col gap-1">
-                      <div className="text-sm sm:text-base font-medium  text-[#777D7F]">
-                        Start date{' '}
-                      </div>
-                      <div className="text-muted-foreground text-sm text-slate-700 font-semibold">
-                        {startDateResponse.dateTime}
-                      </div>
-                    </div>
-                  </div>
-                  <div className="flex items-start gap-4 sm:gap-6">
-                    <ClockIcon className="w-6 h-6 text-muted-foreground text-[#777D7F]" />
-                    <div className="flex flex-col gap-1">
-                      <div className="text-sm sm:text-base font-medium  text-[#777D7F]">
-                        End date{' '}
-                      </div>
-                      <div className="text-muted-foreground text-sm text-slate-700 font-semibold">
-                        {endDateResponse.dateTime}
-                      </div>
-                    </div>
-                  </div>
-                  <div className="flex items-start gap-4 sm:gap-6">
-                    <MapPinIcon className="w-6 h-6 text-muted-foreground text-[#777D7F]" />
-                    <div className="flex flex-col gap-1">
-                      <div className="text-sm sm:text-base font-medium  text-[#777D7F]">
-                        Location{' '}
-                      </div>
-                      <div className="text-muted-foreground text-sm text-slate-700 font-semibold">
-                        {feltToString(data?.event_type)}
-                      </div>
-                    </div>
-                  </div>
+            )}
+            <h1 className='text-3xl text-deep-blue font-semibold'>
+                Event Details
+            </h1>
+            {isLoading ? (
+                <h4>Loading ...</h4>
+            ) : (
+                <Card className="shadow-2xl pb-6 my-4 rounded-xl">
 
-                  <div className="flex items-start gap-4 sm:gap-6">
-                    <Ticket className="w-6 h-6 text-muted-foreground text-[#777D7F]" />
-                    <div className="flex flex-col gap-1">
-                      <div className="text-sm sm:text-base font-medium  text-[#777D7F]">
-                        Ticket Price{' '}
-                      </div>
-                      <div className="text-muted-foreground text-sm text-slate-700 font-semibold">
-                        {String(data?.ticket_price).slice(0, -18)} STRK
-                      </div>
-                    </div>
-                  </div>
+                    <div className="flex flex-col mx-10 mt-10">
+                        <section className="rounded-2xl relative w-full h-[200px] sm:h-[300px] lg:h-[300px] overflow-hidden">
+                            <img
+                                src="/assets/about-image-podcast.jpg"
+                                className="absolute inset-0 w-full h-[300px] object-cover "
+                                alt="Event banner background"
+                            />
+                            <div className="absolute inset-0 bg-black/50 z-10" />
+                            <div className="relative z-20 h-full flex flex-col items-center justify-center px-4 sm:px-6 lg:px-8 text-center text-base-white">
+                                <h1 className="text-3xl sm:text-4xl lg:text-5xl font-bold tracking-tight">{feltToString(data?.theme)}</h1>
+                                <p className="mt-4 max-w-3xl text-lg sm:text-xl mb-6">
+                                    Join us for a day of inspiring talks, networking, and exploring the latest trends in the industry.
+                                </p>
+                                <div className="flex items-center gap-2 sm:gap-2">
+                                    <User className="w-6 h-4 text-muted-foreground font-bold text-white" />
+                                    <div className='flex gap-3 items-start'>
+                                        <div className="text-[12px] font-bold  text-white">Organizer </div>
+                                        <div className="text-[12px]  text-white">0x{(data?.organizer).toString(16)}</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </section>
+                        <div className="">
+                            <div className="flex justify-evenly items-start">
+                                <div className='flex flex-col gap-6 mt-4 w-[50%]'>
+                                    <div className="flex items-start gap-4 sm:gap-6">
+                                        <CalendarIcon className="w-6 h-6 text-muted-foreground text-[#777D7F] " />
+                                        <div className='flex flex-col gap-1'>
+                                            <div className="text-sm sm:text-base font-medium  text-[#777D7F]">Start date  </div>
+                                            <div className="text-muted-foreground text-sm text-slate-700 font-semibold">{startDateResponse.dateTime}</div>
+                                        </div>
+                                    </div>
+                                    <div className="flex items-start gap-4 sm:gap-6">
+                                        <ClockIcon className="w-6 h-6 text-muted-foreground text-[#777D7F]" />
+                                        <div className='flex flex-col gap-1'>
+                                            <div className="text-sm sm:text-base font-medium  text-[#777D7F]">End date  </div>
+                                            <div className="text-muted-foreground text-sm text-slate-700 font-semibold">{endDateResponse.dateTime}</div>
+                                        </div>
+                                    </div>
+                                    <div className="flex items-start gap-4 sm:gap-6">
+                                        <MapPinIcon className="w-6 h-6 text-muted-foreground text-[#777D7F]" />
+                                        <div className='flex flex-col gap-1'>
+                                            <div className="text-sm sm:text-base font-medium  text-[#777D7F]">Location </div>
+                                            <div className="text-muted-foreground text-sm text-slate-700 font-semibold">{feltToString(data?.event_type)}</div>
+                                        </div>
+                                    </div>
 
-                  <div className="flex items-start gap-4 sm:gap-6">
-                    <MdLiveTv className="w-6 h-6 text-muted-foreground text-[#777D7F]" />
-                    <div className="flex flex-col gap-1">
-                      <div className="text-sm sm:text-base font-medium  text-[#777D7F]">
-                        Event status{' '}
-                      </div>
-                      <div className="text-muted-foreground text-sm text-slate-700 font-semibold">
-                        {data?.is_canceled ? 'canceled' : 'Ongoing'}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-                <div className="flex flex-col gap-4 mt-4 w-[50%]">
-                  <div className="flex items-start gap-4 sm:gap-6">
-                    <Tags className="w-6 h-6 text-muted-foreground text-d eep-blue" />
-                    <div className="flex flex-col gap-1">
-                      <div className="text-sm sm:text-base font-medium  text-[#777D7F]">
-                        Total Tickets{' '}
-                      </div>
-                      <div className="text-muted-foreground text-sm text-slate-700 font-semibold">
-                        {String(data?.total_tickets)}
-                      </div>
-                    </div>
-                  </div>
-                  <div className="flex items-start gap-4 sm:gap-6">
-                    <TicketMinus className="w-6 h-6 text-muted-foreground text-deep-blu e" />
-                    <div className="flex flex-col gap-1">
-                      <div className="text-sm sm:text-base font-medium  text-[#777D7F]">
-                        Total Ticket Sold{' '}
-                      </div>
-                      <div className="text-muted-foreground text-sm text-slate-700 font-semibold">
-                        {String(data?.tickets_sold)}
-                      </div>
-                    </div>
-                  </div>
-                  <div className="flex items-start gap-4 sm:gap-6">
-                    <TicketCheck className="w-6 h-6 text-muted-foreground text-deep-blu e" />
-                    <div className="flex flex-col gap-1">
-                      <div className="text-sm sm:text-base font-medium  text-[#777D7F]">
-                        Total Ticket Available{' '}
-                      </div>
-                      <div className="text-muted-foreground text-sm text-slate-700 font-semibold">
-                        {String(data?.total_tickets - data?.tickets_sold)}
-                      </div>
-                    </div>
-                  </div>
-                  {address === `0x${data?.organizer.toString(16)}` ? (
-                    <>
-                      <div className="flex items-start gap-4 sm:gap-6">
-                        <HandCoins className="w-6 h-6 text-muted-foreground text-[#777D7F]" />
-                        <div className="flex flex-col gap-1">
-                          <div className="text-sm sm:text-base font-medium  text-[#777D7F]">
-                            Total Amount{' '}
-                          </div>
-                          <div className="text-muted-foreground text-sm text-slate-700 font-semibold">
-                            {String(data?.ticket_price * data?.tickets_sold).slice(0, -18)} STRK
-                          </div>
-                        </div>
-                      </div>
-                      <div className="flex gap-8">
-                        <RescheduleDialog id={id} />
+                                    <div className="flex items-start gap-4 sm:gap-6">
+                                        <Ticket className="w-6 h-6 text-muted-foreground text-[#777D7F]" />
+                                        <div className='flex flex-col gap-1'>
+                                            <div className="text-sm sm:text-base font-medium  text-[#777D7F]">Ticket Price </div>
+                                            <div className="text-muted-foreground text-sm text-slate-700 font-semibold">{String(data?.ticket_price).slice(0, -18)} STRK</div>
+                                        </div>
+                                    </div>
 
-                        <Button
-                          onClick={cancelEvent}
-                          size="lg"
-                          className="w-full max-w-md text-primary bg-deep-blue hover:bg-primary hover:text-deep-blue"
-                        >
-                          Cancel Event
-                        </Button>
-                      </div>
-                    </>
-                  ) : (
-                    <div className="flex">
-                      {Number(userTicket) === 0 ? (
-                        <div className="flex gap-2">
-                          <Button
-                            onClick={handleApprove}
-                            size="lg"
-                            className="w-full max-w-md text-primary bg-deep-blue hover:bg-primary hover:text-deep-blue"
-                          >
-                            Give app approval
-                          </Button>
-                          <Button
-                            onClick={handleSubmit}
-                            size="lg"
-                            className="w-full max-w-md text-primary bg-deep-blue hover:bg-primary hover:text-deep-blue"
-                          >
-                            Get ticket
-                          </Button>
-                        </div>
-                      ) : (
-                        <div className="flex gap-3">
-                          {data?.is_canceled && !reclaimed && (
-                            <Button
-                              onClick={claim_ticket_refund}
-                              size="lg"
-                              className="w-full max-w-md text-primary bg-deep-blue hover:bg-primary hover:text-deep-blue"
-                            >
-                              Reclaim ticket refund
-                            </Button>
-                          )}
-                          <TicketDialog
-                            theme={feltToString(data?.theme)}
-                            startDate={startDateResponse.dateTime}
-                            endDate={endDateResponse.dateTime}
-                            location={feltToString(data?.event_type)}
-                            id={id}
-                            deployAccount={deployAccount}
-                            getStatus={getStatus}
-                            getAccount={getAccount}
-                            tba={tba}
-                          />
+                                    <div className="flex items-start gap-4 sm:gap-6">
+                                        <MdLiveTv className="w-6 h-6 text-muted-foreground text-[#777D7F]" />
+                                        <div className='flex flex-col gap-1'>
+                                            <div className="text-sm sm:text-base font-medium  text-[#777D7F]">Event status </div>
+                                            <div className="text-muted-foreground text-sm text-slate-700 font-semibold">{(data?.is_canceled) ? "canceled" : "Ongoing"}</div>
+                                        </div>
+                                    </div>
+
+                                </div>
+                                <div className='flex flex-col gap-4 mt-4 w-[50%]'>
+                                    <div className="flex items-start gap-4 sm:gap-6">
+                                        <Tags className="w-6 h-6 text-muted-foreground text-d eep-blue" />
+                                        <div className='flex flex-col gap-1'>
+                                            <div className="text-sm sm:text-base font-medium  text-[#777D7F]">Total Tickets  </div>
+                                            <div className="text-muted-foreground text-sm text-slate-700 font-semibold">{String(data?.total_tickets)}</div>
+                                        </div>
+                                    </div>
+                                    <div className="flex items-start gap-4 sm:gap-6">
+                                        <TicketMinus className="w-6 h-6 text-muted-foreground text-deep-blu e" />
+                                        <div className='flex flex-col gap-1'>
+                                            <div className="text-sm sm:text-base font-medium  text-[#777D7F]">Total Ticket Sold  </div>
+                                            <div className="text-muted-foreground text-sm text-slate-700 font-semibold">{String(data?.tickets_sold)}</div>
+                                        </div>
+                                    </div>
+                                    <div className="flex items-start gap-4 sm:gap-6">
+                                        <TicketCheck className="w-6 h-6 text-muted-foreground text-deep-blu e" />
+                                        <div className='flex flex-col gap-1'>
+                                            <div className="text-sm sm:text-base font-medium  text-[#777D7F]">Total Ticket Available </div>
+                                            <div className="text-muted-foreground text-sm text-slate-700 font-semibold">{String(data?.total_tickets - data?.tickets_sold)}</div>
+                                        </div>
+                                    </div>
+                                    {
+                                        address === `0x${data?.organizer.toString(16)}` ?
+                                            <>
+                                                <div className="flex items-start gap-4 sm:gap-6">
+                                                    <HandCoins className="w-6 h-6 text-muted-foreground text-[#777D7F]" />
+                                                    <div className='flex flex-col gap-1'>
+                                                        <div className="text-sm sm:text-base font-medium  text-[#777D7F]">Total Amount  </div>
+                                                        <div className="text-muted-foreground text-sm text-slate-700 font-semibold">{String(data?.ticket_price * data?.tickets_sold).slice(0, -18)} STRK</div>
+                                                    </div>
+                                                </div>
+                                                <div className="flex gap-8">
+                                                    <RescheduleDialog id={id} />
+
+                                                    <Button onClick={cancelEvent} size="lg" className="w-full max-w-md text-primary bg-deep-blue hover:bg-primary hover:text-deep-blue">
+                                                        Cancel Event
+                                                    </Button>
+                                                </div></> :
+                                            <div className="flex">
+                                                {Number(userTicket) === 0 ? <div className='flex gap-2'>
+                                                    <Button onClick={handleApprove} size="lg" className="w-full max-w-md text-primary bg-deep-blue hover:bg-primary hover:text-deep-blue">
+                                                        Give app approval
+                                                    </Button>
+                                                    <Button onClick={handleSubmit} size="lg" className="w-full max-w-md text-primary bg-deep-blue hover:bg-primary hover:text-deep-blue">
+                                                        Get ticket
+                                                    </Button>
+                                                </div>
+                                                    : <div className='flex gap-3'>{
+                                                        (data?.is_canceled) && !reclaimed &&
+                                                        <Button onClick={claim_ticket_refund} size="lg" className="w-full max-w-md text-primary bg-deep-blue hover:bg-primary hover:text-deep-blue">
+                                                            Reclaim ticket refund
+                                                        </Button> }
+                                                        <TicketDialog theme={feltToString(data?.theme)} startDate={startDateResponse.dateTime} endDate={endDateResponse.dateTime} location={feltToString(data?.event_type)} id={id} deployAccount={deployAccount} getStatus={getStatus} getAccount={getAccount} tba={tba} />
+                                                    </div>
+                                                }
+                                            </div>
+                                    }
+                                </div>
+                            </div>
+
                         </div>
                       )}
                     </div>
