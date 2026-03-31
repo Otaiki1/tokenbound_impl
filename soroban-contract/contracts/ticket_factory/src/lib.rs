@@ -65,10 +65,7 @@ impl TicketFactory {
         env.storage().instance().set(&DataKey::TotalTickets, &0u32);
 
         // Extend instance TTL
-        env.storage().instance().extend_ttl(
-            30 * 24 * 60 * 60 / 5,  // ~30 days
-            100 * 24 * 60 * 60 / 5, // ~100 days
-        );
+        upg::extend_instance_ttl(&env);
     }
 
     /// Deploy a new Ticket NFT contract for an event
@@ -125,11 +122,7 @@ impl TicketFactory {
             .set(&DataKey::TicketContract(ticket_id), &deployed_address);
 
         // Extend persistent TTL
-        env.storage().persistent().extend_ttl(
-            &DataKey::TicketContract(ticket_id),
-            30 * 24 * 60 * 60 / 5,  // threshold
-            100 * 24 * 60 * 60 / 5, // extend_to
-        );
+        upg::extend_persistent_ttl(&env, &DataKey::TicketContract(ticket_id));
 
         // Update total count in instance storage
         env.storage()
@@ -137,9 +130,7 @@ impl TicketFactory {
             .set(&DataKey::TotalTickets, &ticket_id);
 
         // Extend instance TTL on update
-        env.storage()
-            .instance()
-            .extend_ttl(30 * 24 * 60 * 60 / 5, 100 * 24 * 60 * 60 / 5);
+        upg::extend_instance_ttl(&env);
 
         Ok(deployed_address)
     }
@@ -187,9 +178,7 @@ impl TicketFactory {
             .ok_or(Error::NotInitialized)?;
 
         // Extend instance TTL on read
-        env.storage()
-            .instance()
-            .extend_ttl(30 * 24 * 60 * 60 / 5, 100 * 24 * 60 * 60 / 5);
+        upg::extend_instance_ttl(&env);
 
         Ok(admin)
     }

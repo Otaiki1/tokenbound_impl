@@ -95,6 +95,11 @@ impl MarketplaceContract {
         env.storage()
             .persistent()
             .set(&DataKey::MaxListingsPerUser, &10u32);
+        Self::extend_persistent_ttl(&env, &DataKey::PriceCap);
+        Self::extend_persistent_ttl(&env, &DataKey::Admin);
+        Self::extend_persistent_ttl(&env, &DataKey::TotalListings);
+        Self::extend_persistent_ttl(&env, &DataKey::TotalSales);
+        Self::extend_persistent_ttl(&env, &DataKey::MaxListingsPerUser);
     }
 
     pub fn create_listing(
@@ -140,12 +145,16 @@ impl MarketplaceContract {
             active: true,
             created_at: env.ledger().timestamp(),
         };
-        
-        env.storage().persistent().set(&DataKey::Listing(listing_id), &listing);
+
+        env.storage()
+            .persistent()
+            .set(&DataKey::Listing(listing_id), &listing);
         env.storage()
             .persistent()
             .set(&DataKey::TotalListings, &(listing_id.checked_add(1).unwrap()));
-        
+        Self::extend_persistent_ttl(&env, &DataKey::Listing(listing_id));
+        Self::extend_persistent_ttl(&env, &DataKey::TotalListings);
+
         env.events().publish(
             ("listing_created",),
             (listing_id, seller, ticket_contract, token_id, price),
@@ -190,11 +199,6 @@ impl MarketplaceContract {
         };
 
         let token_client = token::Client::new(&env, &payment_token);
-        
-        // Mark listing as inactive BEFORE external calls (Checks-Effects-Interactions)
-        let mut updated_listing = listing.clone();
-        updated_listing.active = false;
-        env.storage().persistent().set(&DataKey::Listing(listing_id), &updated_listing);
 
         // Transfer payment from buyer to seller
         token_client.transfer(&buyer, &listing.seller, &listing.price);
@@ -216,6 +220,7 @@ impl MarketplaceContract {
         env.storage()
             .persistent()
             .set(&DataKey::Listing(listing_id), &updated_listing);
+        Self::extend_persistent_ttl(&env, &DataKey::Listing(listing_id));
 
         // Record sale
         let total_sales: u32 = env
@@ -231,12 +236,16 @@ impl MarketplaceContract {
             price: listing.price,
             timestamp: env.ledger().timestamp(),
         };
-        
-        env.storage().persistent().set(&DataKey::Sale(total_sales), &sale);
+
+        env.storage()
+            .persistent()
+            .set(&DataKey::Sale(total_sales), &sale);
         env.storage()
             .persistent()
             .set(&DataKey::TotalSales, &(total_sales.checked_add(1).unwrap()));
-        
+        Self::extend_persistent_ttl(&env, &DataKey::Sale(total_sales));
+        Self::extend_persistent_ttl(&env, &DataKey::TotalSales);
+
         env.events().publish(
             ("purchase_completed",),
             (listing_id, buyer, listing.seller, listing.price),
@@ -273,6 +282,7 @@ impl MarketplaceContract {
         env.storage()
             .persistent()
             .set(&DataKey::Listing(listing_id), &listing);
+        Self::extend_persistent_ttl(&env, &DataKey::Listing(listing_id));
 
         Ok(())
     }
@@ -376,6 +386,7 @@ impl MarketplaceContract {
         env.storage()
             .persistent()
             .set(&DataKey::PriceCap, &price_cap);
+        Self::extend_persistent_ttl(&env, &DataKey::PriceCap);
 
         Ok(())
     }
@@ -408,5 +419,9 @@ impl MarketplaceContract {
 
     pub fn version(env: Env) -> u32 {
         upg::get_version(&env)
+    }
+
+    fn extend_persistent_ttl(env: &Env, key: &DataKey) {
+        upg::extend_persistent_ttl(env, key);
     }
 }

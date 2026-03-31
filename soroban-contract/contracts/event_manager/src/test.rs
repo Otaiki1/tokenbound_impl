@@ -25,8 +25,9 @@ fn setup(env: &Env) -> (EventManagerClient<'_>, Address) {
     let contract_id = env.register(EventManager, ());
     let client = EventManagerClient::new(env, &contract_id);
     let mock_addr = env.register(MockContract, ());
+    let admin = Address::generate(env);
     env.mock_all_auths();
-    client.initialize(&mock_addr);
+    client.initialize(&admin, &mock_addr);
     (client, mock_addr)
 }
 
@@ -379,7 +380,10 @@ fn test_backward_compat_single_tier() {
 
     let tiers = client.get_event_tiers(&event_id);
     assert_eq!(tiers.len(), 1);
-    assert_eq!(tiers.get(0).unwrap().name, String::from_str(&env, "General"));
+    assert_eq!(
+        tiers.get(0).unwrap().name,
+        String::from_str(&env, "General")
+    );
     assert_eq!(tiers.get(0).unwrap().price, 100);
     assert_eq!(tiers.get(0).unwrap().total_quantity, 10);
 }
@@ -408,7 +412,7 @@ fn test_purchase_tickets_applies_group_discount() {
     let organizer = Address::generate(&env);
     let start = env.ledger().timestamp() + 86_400;
 
-    let event_id = client.create_event(&CreateEventParams {
+    let event_id = client.create_event_with_tiers(&CreateEventParams {
         organizer,
         theme: String::from_str(&env, "Stellar Meetup"),
         event_type: String::from_str(&env, "Conference"),
