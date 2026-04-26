@@ -107,6 +107,7 @@ fn increment_nonce(env: &Env) -> u64 {
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TransactionExecutedEvent {
+    pub contract_address: Address,
     pub to: Address,
     pub func: Symbol,
     pub nonce: u64,
@@ -216,15 +217,13 @@ impl TbaAccount {
 
         // Emit transaction executed event
         let event = TransactionExecutedEvent {
+            contract_address: env.current_contract_address(),
             to: to.clone(),
             func: func.clone(),
             nonce,
         };
         env.events().publish(
-            (
-                Symbol::new(&env, "executed"),
-                Symbol::new(&env, "TransactionExecuted"),
-            ),
+            (Symbol::new(&env, "TransactionExecuted"),),
             event,
         );
 
