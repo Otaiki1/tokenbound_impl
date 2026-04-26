@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import * as StellarSdk from '@stellar/stellar-sdk';
+import { LoggedSorobanServer } from '../lib/LoggedSorobanServer';
 
 /**
  * ContractDebugger
@@ -23,7 +24,7 @@ const ContractDebugger = ({ rpcUrl = 'https://soroban-testnet.stellar.org:443' }
     setSimulationResult(null);
 
     try {
-      const server = new StellarSdk.SorobanRpc.Server(rpcUrl);
+      const server = new LoggedSorobanServer(rpcUrl, { enableLogging: true });
       let parsedArgs = [];
       
       try {
