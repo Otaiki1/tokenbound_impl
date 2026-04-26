@@ -15,7 +15,7 @@
 #![no_std]
 
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, Address, BytesN, Env, IntoVal, Val, Vec,
+    contract, contracterror, contractimpl, contracttype, Address, BytesN, Env, IntoVal, Symbol, Val, Vec,
 };
 
 use upgradeable as upg;
@@ -66,6 +66,11 @@ impl TicketFactory {
 
         // Extend instance TTL
         upg::extend_instance_ttl(&env);
+
+        env.events().publish(
+            (Symbol::new(&env, "factory_init"),),
+            admin,
+        );
     }
 
     /// Deploy a new Ticket NFT contract for an event
@@ -131,6 +136,11 @@ impl TicketFactory {
 
         // Extend instance TTL on update
         upg::extend_instance_ttl(&env);
+
+        env.events().publish(
+            (Symbol::new(&env, "ticket_deployed"), ticket_id),
+            deployed_address.clone(),
+        );
 
         Ok(deployed_address)
     }
