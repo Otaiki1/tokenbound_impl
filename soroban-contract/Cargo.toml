@@ -8,6 +8,7 @@ members = [
   "contracts/ticket_factory",
   "contracts/event_manager",
   "contracts/marketplace",
+  "contracts/vesting",
   "tests/integration",
 ]
 exclude = ["contracts/hello-world"]
