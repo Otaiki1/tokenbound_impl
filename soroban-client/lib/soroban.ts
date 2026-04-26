@@ -8,6 +8,9 @@ const { Server, TransactionBuilder, Operation, SorobanRpc } = StellarSdk;
 // Import Networks separately to avoid conflict
 import { Networks } from "@stellar/stellar-sdk";
 
+// Import RPC failover manager
+import { getRPCManager, initializeRPCManager, DEFAULT_RPC_CONFIG } from "./rpc-failover";
+
 // Configuration helpers – prefer environment variables so they can be swapped
 // for different networks (testnet / preview / mainnet) without changing code.
 const HORIZON_URL =
@@ -22,6 +25,12 @@ const EVENT_MANAGER_CONTRACT =
 // contract ID of the deployed Marketplace; set this in .env.local
 const MARKETPLACE_CONTRACT =
   process.env.NEXT_PUBLIC_MARKETPLACE_CONTRACT || "<MISSING_CONTRACT_ID>";
+
+// Initialize RPC manager with environment-based configuration
+const rpcManager = initializeRPCManager({
+  horizonUrls: HORIZON_URL.split(',').map(url => url.trim()).filter(url => url),
+  sorobanRpcUrls: SOROBAN_RPC_URL.split(',').map(url => url.trim()).filter(url => url),
+});
 
 export interface CreateEventParams {
   organizer: string; // wallet address
@@ -104,7 +113,7 @@ export async function createEvent(
     );
   }
 
-  const server = new Server(HORIZON_URL);
+  const server = await getRPCManager().getHorizonServer();
 
   // load account to obtain current sequence number
   const sourceAccount = await server.loadAccount(params.organizer);
@@ -161,7 +170,7 @@ export async function buyTickets(
     );
   }
 
-  const server = new Server(HORIZON_URL);
+  const server = await getRPCManager().getHorizonServer();
   const sourceAccount = await server.loadAccount(params.buyer);
   const fee = await server.fetchBaseFee();
 
@@ -200,8 +209,8 @@ async function simulateAndInvoke(
   functionName: string,
   args: ReturnType<typeof nativeToScVal>[]
 ) {
-  const rpc = new SorobanRpc.Server(SOROBAN_RPC_URL);
-  const server = new Server(HORIZON_URL);
+  const rpc = await getRPCManager().getSorobanRpcServer();
+  const server = await getRPCManager().getHorizonServer();
   const sourceAccount = await server.loadAccount(caller);
   const fee = await server.fetchBaseFee();
 
@@ -231,7 +240,7 @@ async function simulateAndInvoke(
 
 /** Read all events from the contract (view call, no signing needed). */
 export async function getAllEvents(): Promise<Event[]> {
-  const rpc = new SorobanRpc.Server(SOROBAN_RPC_URL);
+  const rpc = await getRPCManager().getSorobanRpcServer();
 
   const operation = Operation.invokeContractFunction({
     contract: EVENT_MANAGER_CONTRACT,
@@ -305,7 +314,7 @@ export async function claimFunds(organizer: string, eventId: number, signTransac
 
 /** Get attendees (buyers) for an event. */
 export async function getEventAttendees(eventId: number, readerAccount: string): Promise<string[]> {
-  const rpc = new SorobanRpc.Server(SOROBAN_RPC_URL);
+  const rpc = await getRPCManager().getSorobanRpcServer();
 
   const operation = Operation.invokeContractFunction({
     contract: EVENT_MANAGER_CONTRACT,
@@ -332,7 +341,7 @@ export async function getEventAttendees(eventId: number, readerAccount: string):
 
 /** Get balance of a user in a specific NFT contract. */
 export async function getBalance(contractId: string, address: string): Promise<bigint> {
-  const rpc = new SorobanRpc.Server(SOROBAN_RPC_URL);
+  const rpc = await getRPCManager().getSorobanRpcServer();
 
   const operation = Operation.invokeContractFunction({
     contract: contractId,
@@ -378,7 +387,7 @@ export async function getUserTickets(address: string): Promise<Event[]> {
 
 /** Get token ID for a user. */
 export async function getTokenId(contractId: string, address: string): Promise<bigint> {
-  const rpc = new SorobanRpc.Server(SOROBAN_RPC_URL);
+  const rpc = await getRPCManager().getSorobanRpcServer();
 
   const operation = Operation.invokeContractFunction({
     contract: contractId,
@@ -416,7 +425,7 @@ export async function createListing(
     );
   }
 
-  const server = new Server(HORIZON_URL);
+  const server = await getRPCManager().getHorizonServer();
   const sourceAccount = await server.loadAccount(params.seller);
   const fee = await server.fetchBaseFee();
 
@@ -461,7 +470,7 @@ export async function buyListing(
     );
   }
 
-  const server = new Server(HORIZON_URL);
+  const server = await getRPCManager().getHorizonServer();
   const sourceAccount = await server.loadAccount(params.buyer);
   const fee = await server.fetchBaseFee();
 
@@ -497,7 +506,7 @@ export async function getActiveListings(): Promise<any[]> {
     return [];
   }
 
-  const rpc = new SorobanRpc.Server(SOROBAN_RPC_URL);
+  const rpc = await getRPCManager().getSorobanRpcServer();
 
   const operation = Operation.invokeContractFunction({
     contract: MARKETPLACE_CONTRACT,
