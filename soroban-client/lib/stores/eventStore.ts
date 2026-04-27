@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { EventRecord } from '@/sdk/src/types';
+import type { EventRecord } from '../sdk/src/types';
 
 interface EventState {
   events: EventRecord[];

@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { useSoroban } from '@/contexts/SorobanContext';
 import { useGetTBAAccount, useCreateTBAAccount, useTBAOwner, useTBANonce } from '@/hooks/useTBA';
 import { useWallet } from '@/contexts/WalletContext';
-import type { CreateAccountInput } from '@/sdk/src/types';
+import type { CreateAccountInput } from '../../sdk/src/types';
 
 interface TBAManagerProps {
   tokenContract: string;

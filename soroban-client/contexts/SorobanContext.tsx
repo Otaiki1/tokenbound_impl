@@ -1,9 +1,9 @@
 "use client";
 
-import React, { createContext, useContext, useMemo, ReactNode } from 'react';
-import { createTokenboundSdk } from '@/sdk/src';
-import type { TokenboundSdk } from '@/sdk/src';
-import type { TokenboundSdkConfig } from '@/sdk/src/types';
+import { createContext, useContext, useMemo, ReactNode } from 'react';
+import { createTokenboundSdk } from '../sdk/src';
+import type { TokenboundSdk } from '../sdk/src';
+import type { TokenboundSdkConfig } from '../sdk/src/types';
 
 interface SorobanContextValue {
   sdk: TokenboundSdk | null;

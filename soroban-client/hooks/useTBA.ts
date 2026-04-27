@@ -7,7 +7,7 @@ import type {
   ExecuteTbaCallInput,
   WriteInvokeOptions, 
   InvokeOptions 
-} from '@/sdk/src/types';
+} from '../sdk/src/types';
 
 export function useGetTBAAccount(
   sdk: any,

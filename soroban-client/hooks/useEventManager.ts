@@ -9,7 +9,7 @@ import type {
   PurchaseTicketInput,
   WriteInvokeOptions,
   InvokeOptions,
-} from '@/sdk/src/types';
+} from '../sdk/src/types';
 
 export function useGetEvent(
   sdk: any,

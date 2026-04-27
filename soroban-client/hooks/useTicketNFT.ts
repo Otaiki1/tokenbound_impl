@@ -2,7 +2,7 @@
 
 import { useCallback } from 'react';
 import { useSorobanContractRead, useSorobanContractWrite } from './useSorobanContract';
-import type { WriteInvokeOptions, InvokeOptions } from '@/sdk/src/types';
+import type { WriteInvokeOptions, InvokeOptions } from '../sdk/src/types';
 
 export function useOwnerOf(
   sdk: any,

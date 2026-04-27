@@ -1,10 +1,10 @@
 "use client";
 
-import { useState } from 'react';
 import { useSoroban } from '@/contexts/SorobanContext';
 import { useCreateEvent } from '@/hooks/useEventManager';
 import { useWallet } from '@/contexts/WalletContext';
-import type { CreateEventInput } from '@/sdk/src/types';
+import type { CreateEventInput } from '../../sdk/src/types';
+import { useState } from 'react';
 
 export function CreateEventForm() {
   const { sdk } = useSoroban();

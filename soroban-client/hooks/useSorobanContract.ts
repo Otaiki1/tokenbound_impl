@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback, useEffect } from 'react';
-import type { InvokeOptions, WriteInvokeOptions, SorobanSubmitResult } from '@/sdk/src/types';
+import type { InvokeOptions, WriteInvokeOptions, SorobanSubmitResult } from '../sdk/src/types';
 
 export interface ContractCallState<T = unknown> {
   data: T | null;
