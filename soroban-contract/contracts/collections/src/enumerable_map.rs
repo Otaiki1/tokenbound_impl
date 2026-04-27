@@ -39,6 +39,8 @@ use soroban_sdk::Env;
 pub enum MapKey {
     /// The ordered `Vec<K>` of map keys.
     Keys(Symbol),
+    /// Cached number of entries in the map.
+    Count(Symbol),
     /// 1-based position of a key.  The `u64` is the key's raw `Val` payload.
     KeyIndex(Symbol, u64),
     /// The value stored for a key.  The `u64` is the key's raw `Val` payload.
@@ -87,6 +89,7 @@ impl EnumerableMap {
             vec.push_back(key.clone());
             let one_based = vec.len();
             tier.set(env, &keys_key, &vec);
+            tier.set(env, &MapKey::Count(ns.clone()), &one_based);
             tier.set(env, &index_key, &one_based);
         }
 
@@ -126,6 +129,7 @@ impl EnumerableMap {
 
         vec.pop_back();
         tier.set(env, &keys_key, &vec);
+        tier.set(env, &MapKey::Count(ns.clone()), &vec.len());
 
         // Delete the index and value for the removed key.
         tier.remove(env, &index_key);
@@ -160,10 +164,7 @@ impl EnumerableMap {
     where
         K: IntoVal<Env, Val> + TryFromVal<Env, Val>,
     {
-        let vec: Vec<K> = tier
-            .get(env, &MapKey::Keys(ns.clone()))
-            .unwrap_or_else(|| Vec::new(env));
-        vec.len()
+        tier.get(env, &MapKey::Count(ns.clone())).unwrap_or(0)
     }
 
     /// Returns all keys in insertion order.
