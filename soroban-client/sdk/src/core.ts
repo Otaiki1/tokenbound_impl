@@ -9,6 +9,7 @@ import {
 import { nativeToScVal, scValToNative } from "@stellar/stellar-base";
 
 import { mapSdkError } from "./errors";
+import { generateId, withSpan } from "./tracer";
 import { RetryPolicy } from "./retry";
 import type {
   Bytes32Like,
@@ -18,6 +19,7 @@ import type {
   PreparedTransaction,
   SorobanSubmitResult,
   TokenboundSdkConfig,
+  TraceSpan,
   WriteInvokeOptions,
 } from "./types";
 
@@ -65,6 +67,44 @@ export class SorobanSdkCore {
     this.rpcServer = new rpc.Server(config.sorobanRpcUrl);
     this.retryPolicy = new RetryPolicy(config.retryConfig);
   }
+
+  // ── Tracing helpers ─────────────────────────────────────────────────────────
+
+  private resolveCorrelationId(options?: InvokeOptions): string {
+    if (options?.correlationId) return options.correlationId;
+    if (this.config.tracing?.autoCorrelation !== false) return generateId();
+    return "none";
+  }
+
+  private get onSpanStart() {
+    return this.config.tracing?.onSpanStart;
+  }
+
+  private get onSpanEnd() {
+    return this.config.tracing?.onSpanEnd;
+  }
+
+  private trace<T>(
+    name: string,
+    contract: ContractName,
+    method: string,
+    correlationId: string,
+    attributes: TraceSpan["attributes"],
+    fn: (span: TraceSpan) => Promise<T>
+  ): Promise<T> {
+    return withSpan(
+      name,
+      contract,
+      method,
+      correlationId,
+      attributes,
+      this.onSpanStart,
+      this.onSpanEnd,
+      fn
+    );
+  }
+
+  // ── Core helpers ────────────────────────────────────────────────────────────
 
   getContractId(contract: ContractName): string {
     const contractId = this.config.contracts?.[contract];
@@ -118,11 +158,32 @@ export class SorobanSdkCore {
       .build();
   }
 
+  // ── Traced public API ───────────────────────────────────────────────────────
+
   async simulate(
     contract: ContractName,
     artifact: ContractCallArtifact,
     options?: InvokeOptions,
   ) {
+    const correlationId = this.resolveCorrelationId(options);
+    return this.trace(
+      "simulate",
+      contract,
+      artifact.method,
+      correlationId,
+      { contractId: artifact.contractId },
+      async () => {
+        try {
+          const source = this.resolveReadSource(options?.source ?? options?.simulationSource);
+          const tx = await this.buildInvokeTransaction(source, artifact, options);
+          const simulation = await this.rpcServer.simulateTransaction(tx);
+          if (rpc.Api.isSimulationError(simulation)) {
+            throw mapSdkError(contract, simulation.error, "Simulation failed.");
+          }
+          return simulation;
+        } catch (error) {
+          throw mapSdkError(contract, error, "Simulation failed.");
+        }
     try {
       const source = this.resolveReadSource(
         options?.source ?? options?.simulationSource,
@@ -135,10 +196,7 @@ export class SorobanSdkCore {
       if (rpc.Api.isSimulationError(simulation)) {
         throw mapSdkError(contract, simulation.error, "Simulation failed.");
       }
-      return simulation;
-    } catch (error) {
-      throw mapSdkError(contract, error, "Simulation failed.");
-    }
+    );
   }
 
   async read<TNative>(
@@ -146,12 +204,25 @@ export class SorobanSdkCore {
     artifact: ContractCallArtifact,
     options?: InvokeOptions,
   ): Promise<TNative> {
-    const simulation = await this.simulate(contract, artifact, options);
-    const returnValue = simulation.result?.retval;
-    if (!returnValue) {
-      return undefined as TNative;
-    }
-    return scValToNative(returnValue) as TNative;
+    const correlationId = this.resolveCorrelationId(options);
+    return this.trace(
+      "read",
+      contract,
+      artifact.method,
+      correlationId,
+      { contractId: artifact.contractId },
+      async () => {
+        const simulation = await this.simulate(contract, artifact, {
+          ...options,
+          correlationId,
+        });
+        const returnValue = simulation.result?.retval;
+        if (!returnValue) {
+          return undefined as TNative;
+        }
+        return scValToNative(returnValue) as TNative;
+      }
+    );
   }
 
   async prepareWrite(
@@ -159,10 +230,34 @@ export class SorobanSdkCore {
     artifact: ContractCallArtifact,
     options: WriteInvokeOptions,
   ): Promise<PreparedTransaction> {
-    try {
-      if (!options.source) {
-        throw new Error("Write calls require a source account.");
+    const correlationId = this.resolveCorrelationId(options);
+    return this.trace(
+      "prepareWrite",
+      contract,
+      artifact.method,
+      correlationId,
+      { contractId: artifact.contractId, source: options.source ?? "" },
+      async () => {
+        try {
+          if (!options.source) {
+            throw new Error("Write calls require a source account.");
+          }
+          const tx = await this.buildInvokeTransaction(options.source, artifact, options);
+          const simulation = await this.rpcServer.simulateTransaction(tx);
+          if (rpc.Api.isSimulationError(simulation)) {
+            throw mapSdkError(contract, simulation.error, "Simulation failed.");
+          }
+          const prepared = rpc.assembleTransaction(tx, simulation).build();
+          return {
+            xdr: prepared.toXDR(),
+            networkPassphrase: this.config.networkPassphrase,
+            source: options.source,
+          };
+        } catch (error) {
+          throw mapSdkError(contract, error, "Preparing transaction failed.");
+        }
       }
+    );
       const tx = await this.buildInvokeTransaction(
         options.source,
         artifact,
@@ -189,6 +284,40 @@ export class SorobanSdkCore {
     artifact: ContractCallArtifact,
     options: WriteInvokeOptions,
   ): Promise<SorobanSubmitResult> {
+    const correlationId = this.resolveCorrelationId(options);
+    return this.trace(
+      "write",
+      contract,
+      artifact.method,
+      correlationId,
+      { contractId: artifact.contractId, source: options.source ?? "" },
+      async () => {
+        try {
+          const prepared = await this.prepareWrite(contract, artifact, {
+            ...options,
+            correlationId,
+          });
+          const signedXdr = await options.signTransaction(prepared.xdr, {
+            networkPassphrase: prepared.networkPassphrase,
+            address: prepared.source,
+          });
+          const signedTx = TransactionBuilder.fromXDR(
+            signedXdr,
+            this.config.networkPassphrase
+          );
+          const sent = await this.rpcServer.sendTransaction(signedTx);
+          if (sent.status === "ERROR") {
+            throw new Error(sent.errorResultXdr || "Transaction submission failed.");
+          }
+          const confirmed = await this.waitForTransaction(sent.hash);
+          return {
+            hash: sent.hash,
+            ledger: confirmed.ledger,
+            status: confirmed.status,
+          };
+        } catch (error) {
+          throw mapSdkError(contract, error, "Submitting transaction failed.");
+        }
     try {
       const prepared = await this.prepareWrite(contract, artifact, options);
       const signedXdr = await options.signTransaction(prepared.xdr, {
@@ -210,15 +339,7 @@ export class SorobanSdkCore {
             : "Transaction submission failed.",
         );
       }
-      const confirmed = await this.waitForTransaction(sent.hash);
-      return {
-        hash: sent.hash,
-        ledger: confirmed.ledger,
-        status: confirmed.status,
-      };
-    } catch (error) {
-      throw mapSdkError(contract, error, "Submitting transaction failed.");
-    }
+    );
   }
 
   async waitForTransaction(hash: string, attempts = 40, delayMs = 1500) {

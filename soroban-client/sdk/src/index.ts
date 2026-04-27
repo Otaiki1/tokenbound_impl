@@ -17,6 +17,7 @@ export * from "./errors";
 export * from "./generated/contracts";
 export * from "./schemaCache";
 export * from "./types";
+export * from "./tracer";
 export * from "./typedClient";
 export * from "./validation";
 export * from "./runtime/typeGuards";
