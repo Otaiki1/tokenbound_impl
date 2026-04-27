@@ -143,3 +143,45 @@ fn test_update_offchain_uri_changes_token_uri() {
     let out = client.token_uri(&token_id);
     assert_eq!(out, uri);
 }
+
+#[test]
+fn test_name_returns_token_name_constant() {
+    let env = Env::default();
+    let (client, _) = setup(&env);
+    assert_eq!(client.name(), String::from_str(&env, TOKEN_NAME));
+}
+
+#[test]
+fn test_symbol_returns_token_symbol_constant() {
+    let env = Env::default();
+    let (client, _) = setup(&env);
+    assert_eq!(client.symbol(), String::from_str(&env, TOKEN_SYMBOL));
+}
+
+#[test]
+fn test_name_and_symbol_callable_before_any_mint() {
+    // Ensures the new getters do not depend on storage that is only
+    // populated after a mint, so off-chain tooling can introspect a freshly
+    // deployed contract.
+    let env = Env::default();
+    let (client, _) = setup(&env);
+    assert_eq!(client.name(), String::from_str(&env, "CrowdPass Ticket"));
+    assert_eq!(client.symbol(), String::from_str(&env, "TICKET"));
+}
+
+#[test]
+fn test_name_and_symbol_unchanged_by_burn() {
+    // Contract-level metadata is independent of token lifecycle.
+    let env = Env::default();
+    let (client, _) = setup(&env);
+    let user = Address::generate(&env);
+
+    let token_id = client.mint_ticket_nft(&user);
+    let name_before = client.name();
+    let symbol_before = client.symbol();
+
+    client.burn(&token_id);
+
+    assert_eq!(client.name(), name_before);
+    assert_eq!(client.symbol(), symbol_before);
+}

@@ -143,20 +143,58 @@ pub struct BuyerPurchase {
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct PoapBadgeMetadata {
-    pub name: String,
-    pub description: String,
-    pub image: String,
+pub struct EventCreatedEvent {
+    pub contract_address: Address,
+    pub event_id: u32,
+    pub organizer: Address,
+    pub ticket_nft_addr: Address,
 }
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct PoapMintMetadata {
+pub struct WaitlistClearedEvent {
+    pub contract_address: Address,
     pub event_id: u32,
-    pub name: String,
-    pub description: String,
-    pub image: String,
-    pub issued_at: u64,
+    pub waitlist_count: u32,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RefundClaimedEvent {
+    pub contract_address: Address,
+    pub event_id: u32,
+    pub claimer: Address,
+    pub quantity: u128,
+    pub total_paid: i128,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TicketPurchasedEvent {
+    pub contract_address: Address,
+    pub event_id: u32,
+    pub buyer: Address,
+    pub quantity: u128,
+    pub total_price: i128,
+    pub ticket_nft_addr: Address,
+    pub tier_index: u32,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct EventUpdatedEvent {
+    pub contract_address: Address,
+    pub event_id: u32,
+    pub organizer: Address,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct FundsWithdrawnEvent {
+    pub contract_address: Address,
+    pub event_id: u32,
+    pub organizer: Address,
+    pub amount: i128,
 }
 
 #[contract]
@@ -488,10 +526,14 @@ impl EventManager {
         Self::extend_persistent_ttl(&env, &DataKey::EventTiers(event_id));
         upg::extend_instance_ttl(&env);
 
-        env.events().publish(
-            (Symbol::new(&env, "event_created"),),
-            (event_id, params.organizer.clone(), ticket_nft_addr),
-        );
+        let event = EventCreatedEvent {
+            contract_address: env.current_contract_address(),
+            event_id,
+            organizer: params.organizer.clone(),
+            ticket_nft_addr,
+        };
+        env.events()
+            .publish((Symbol::new(&env, "EventCreated"),), event);
 
         Self::commit_organizer_create(&env, &params.organizer);
 
@@ -603,10 +645,13 @@ impl EventManager {
             .unwrap_or_else(|| Vec::new(&env));
 
         if !waitlist.is_empty() {
-            env.events().publish(
-                (Symbol::new(&env, "waitlist_cleared"),),
-                (event_id, waitlist.len()),
-            );
+            let event = WaitlistClearedEvent {
+                contract_address: env.current_contract_address(),
+                event_id,
+                waitlist_count: waitlist.len() as u32,
+            };
+            env.events()
+                .publish((Symbol::new(&env, "WaitlistCleared"),), event);
         }
 
         Self::decrement_organizer_open_events(&env, &event.organizer);
@@ -664,10 +709,15 @@ impl EventManager {
             Self::extend_persistent_ttl(&env, &balance_key);
         }
 
-        env.events().publish(
-            (Symbol::new(&env, "refund_claimed"),),
-            (event_id, claimer, purchase.quantity, purchase.total_paid),
-        );
+        let event = RefundClaimedEvent {
+            contract_address: env.current_contract_address(),
+            event_id,
+            claimer: claimer.clone(),
+            quantity: purchase.quantity,
+            total_paid: purchase.total_paid,
+        };
+        env.events()
+            .publish((Symbol::new(&env, "RefundClaimed"),), event);
 
         Ok(())
     }
@@ -767,17 +817,17 @@ impl EventManager {
             .set(&DataKey::Event(event_id), &event);
         Self::extend_persistent_ttl(&env, &DataKey::Event(event_id));
 
-        env.events().publish(
-            (Symbol::new(&env, "ticket_purchased"),),
-            (
-                event_id,
-                buyer,
-                quantity,
-                total_price,
-                event.ticket_nft_addr,
-                tier_index,
-            ),
-        );
+        let event_data = TicketPurchasedEvent {
+            contract_address: env.current_contract_address(),
+            event_id,
+            buyer: buyer.clone(),
+            quantity,
+            total_price,
+            ticket_nft_addr: event.ticket_nft_addr,
+            tier_index,
+        };
+        env.events()
+            .publish((Symbol::new(&env, "TicketPurchased"),), event_data);
 
         Ok(())
     }
@@ -886,10 +936,13 @@ impl EventManager {
             .set(&DataKey::Event(event_id), &event);
         Self::extend_persistent_ttl(&env, &DataKey::Event(event_id));
 
-        env.events().publish(
-            (Symbol::new(&env, "event_updated"),),
-            (event_id, event.organizer),
-        );
+        let event_data = EventUpdatedEvent {
+            contract_address: env.current_contract_address(),
+            event_id,
+            organizer: event.organizer,
+        };
+        env.events()
+            .publish((Symbol::new(&env, "EventUpdated"),), event_data);
 
         Ok(())
     }
@@ -936,10 +989,14 @@ impl EventManager {
             Self::extend_persistent_ttl(&env, &balance_key);
         }
 
-        env.events().publish(
-            (Symbol::new(&env, "funds_withdrawn"),),
-            (event_id, event.organizer.clone(), balance),
-        );
+        let event_data = FundsWithdrawnEvent {
+            contract_address: env.current_contract_address(),
+            event_id,
+            organizer: event.organizer.clone(),
+            amount: balance,
+        };
+        env.events()
+            .publish((Symbol::new(&env, "FundsWithdrawn"),), event_data);
 
         Self::decrement_organizer_open_events(&env, &event.organizer);
         Self::try_promote_from_waitlist(&env, event_id);
