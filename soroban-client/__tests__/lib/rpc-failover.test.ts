@@ -1,4 +1,9 @@
-import { RPCFailoverManager, DEFAULT_RPC_CONFIG, getRPCManager, initializeRPCManager } from "@/lib/rpc-failover";
+import {
+  RPCFailoverManager,
+  DEFAULT_RPC_CONFIG,
+  getRPCManager,
+  initializeRPCManager,
+} from "@/lib/rpc-failover";
 
 // Mock the Stellar SDK
 jest.mock("@stellar/stellar-sdk", () => ({
@@ -8,20 +13,20 @@ jest.mock("@stellar/stellar-sdk", () => ({
     ledgers: jest.fn().mockReturnValue({
       order: jest.fn().mockReturnValue({
         limit: jest.fn().mockReturnValue({
-          call: jest.fn().mockResolvedValue({ records: [] })
-        })
-      })
+          call: jest.fn().mockResolvedValue({ records: [] }),
+        }),
+      }),
     }),
-    submitTransaction: jest.fn().mockResolvedValue({ hash: "test-hash" })
+    submitTransaction: jest.fn().mockResolvedValue({ hash: "test-hash" }),
   })),
   SorobanRpc: {
     Server: jest.fn().mockImplementation((url) => ({
       getNetwork: jest.fn().mockResolvedValue({}),
       simulateTransaction: jest.fn().mockResolvedValue({
-        result: { retval: null }
-      })
-    }))
-  }
+        result: { retval: null },
+      }),
+    })),
+  },
 }));
 
 describe("RPC Failover Manager", () => {
@@ -71,8 +76,8 @@ describe("RPC Failover Manager", () => {
       ...DEFAULT_RPC_CONFIG,
       horizonUrls: [
         "https://primary-horizon.com",
-        "https://secondary-horizon.com"
-      ]
+        "https://secondary-horizon.com",
+      ],
     };
 
     const manager = new RPCFailoverManager(config);
@@ -88,12 +93,14 @@ describe("RPC Failover Manager", () => {
     const manager = new RPCFailoverManager(DEFAULT_RPC_CONFIG);
 
     // Mark all endpoints as unhealthy
-    manager["horizonEndpoints"].forEach(endpoint => {
+    manager["horizonEndpoints"].forEach((endpoint) => {
       endpoint.isHealthy = false;
     });
+    // Prevent an automatic refresh from re-marking endpoints as healthy.
+    manager["lastHealthCheck"] = Date.now();
 
     await expect(manager.getHorizonServer()).rejects.toThrow(
-      "No healthy Horizon endpoints available"
+      "No healthy Horizon endpoints available",
     );
   });
 
@@ -102,7 +109,7 @@ describe("RPC Failover Manager", () => {
       ...DEFAULT_RPC_CONFIG,
       horizonUrls: ["https://custom-horizon.com"],
       sorobanRpcUrls: ["https://custom-rpc.com"],
-      healthCheckInterval: 60000
+      healthCheckInterval: 60000,
     };
 
     const manager = new RPCFailoverManager(customConfig);
@@ -124,7 +131,7 @@ describe("RPC Failover Manager", () => {
   it("allows initialization with custom config", () => {
     const customConfig = {
       ...DEFAULT_RPC_CONFIG,
-      healthCheckInterval: 120000
+      healthCheckInterval: 120000,
     };
 
     const manager = initializeRPCManager(customConfig);
@@ -162,7 +169,9 @@ describe("RPC Failover Manager", () => {
     const url = DEFAULT_RPC_CONFIG.horizonUrls[0];
     manager.updateEndpointPriority(url, 10);
 
-    const endpoint = manager.getHealthStatus().horizon.find(e => e.url === url);
+    const endpoint = manager
+      .getHealthStatus()
+      .horizon.find((e) => e.url === url);
     expect(endpoint?.priority).toBe(10);
   });
 });
