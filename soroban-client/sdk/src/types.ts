@@ -1,4 +1,5 @@
 import type { xdr } from "@stellar/stellar-sdk";
+import type { RetryConfig } from "./retry";
 
 export type ContractName =
   | "eventManager"
@@ -16,6 +17,7 @@ export interface TokenboundSdkConfig {
   readonly networkPassphrase: string;
   readonly simulationSource?: string | null;
   readonly contracts?: Partial<Record<ContractName, string | null | undefined>>;
+  readonly retryConfig?: RetryConfig;
 }
 
 export interface InvokeOptions {

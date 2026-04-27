@@ -13,6 +13,7 @@ export * from "./contracts";
 export * from "./core";
 export * from "./errors";
 export * from "./generated/contracts";
+export * from "./retry";
 export * from "./types";
 
 export class TokenboundSdk extends SorobanSdkCore {
