@@ -358,3 +358,32 @@ export function getCacheStats() {
     hydratedFromCheckpoint: hydrated,
   };
 }
+
+/**
+ * Get the latest cursor for reconnection purposes
+ * Returns a cursor string that can be used to resume from the last known position
+ */
+export function getLatestCursor(): string | null {
+  if (cache.lastLedger === 0) return null;
+  return `${cache.lastLedger}-0-0-0`;
+}
+
+/**
+ * Get events after a specific cursor for replay
+ * @param cursor The cursor to resume from (format: "ledger-0-0-0")
+ * @returns Events that occurred after the cursor
+ */
+export function getEventsAfterCursor(cursor: string): IndexedEvent[] {
+  if (!cursor || cache.lastLedger === 0) {
+    return cache.events;
+  }
+
+  // Parse the cursor to extract the ledger number
+  const cursorLedger = parseInt(cursor.split('-')[0], 10);
+  if (isNaN(cursorLedger)) {
+    return cache.events;
+  }
+
+  // Return events that occurred after the cursor ledger
+  return cache.events.filter(event => event.ledger > cursorLedger);
+}
