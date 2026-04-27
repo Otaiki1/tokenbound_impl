@@ -896,36 +896,6 @@ impl EventManager {
         Ok(())
     }
 
-    fn validate_bounded_string(s: &String, max_bytes: u32) -> Result<(), Error> {
-        if s.len() > max_bytes {
-            return Err(Error::InvalidTierConfig); // Or some appropriate error
-        }
-        Ok(())
-    }
-
-    fn validate_ticket_price(price: i128) -> Result<(), Error> {
-        if price < 0 {
-            return Err(Error::NegativeTicketPrice);
-        }
-        Ok(())
-    }
-
-    fn enforce_organizer_limits_and_rate(_env: &Env, _organizer: &Address) -> Result<(), Error> {
-        // Placeholder for real logic
-        Ok(())
-    }
-
-    fn validate_event_span(start: u64, end: u64) -> Result<(), Error> {
-        if end <= start {
-            return Err(Error::InvalidEndDate);
-        }
-        Ok(())
-    }
-
-    fn validate_start_not_too_far(_start: u64, _current: u64) -> Result<(), Error> {
-        Ok(())
-    }
-
     fn commit_organizer_create(env: &Env, organizer: &Address) {
         let ts_key = DataKey::EventCounter; // Dummy key for timestamp if not defined
         env.storage()

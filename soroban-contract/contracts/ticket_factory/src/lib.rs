@@ -105,7 +105,7 @@ impl TicketFactory {
         let deployed_address = env
             .deployer()
             .with_address(env.current_contract_address(), salt)
-            .deploy_v2(wasm_hash, constructor_args);
+            .deploy(wasm_hash, constructor_args);
 
         // Increment ticket count and store the mapping
         let ticket_id: u32 = env
