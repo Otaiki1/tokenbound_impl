@@ -11,6 +11,7 @@ import type { TokenboundSdkConfig } from "./types";
 
 export * from "./contracts";
 export * from "./core";
+export * from "./decoders";
 export * from "./errors";
 export * from "./generated/contracts";
 export * from "./types";
