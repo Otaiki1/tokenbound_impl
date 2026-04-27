@@ -14,6 +14,7 @@ export * from "./core";
 export * from "./errors";
 export * from "./generated/contracts";
 export * from "./types";
+export * from "./tracer";
 
 export class TokenboundSdk extends SorobanSdkCore {
   readonly eventManager: EventManagerContract;
