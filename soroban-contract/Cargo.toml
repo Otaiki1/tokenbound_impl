@@ -7,6 +7,7 @@ members = [
   "contracts/tba_account",
   "contracts/tba_registry",
   "contracts/ticket_nft",
+  "contracts/poap_nft",
   "contracts/ticket_factory",
   "contracts/event_manager",
   "contracts/marketplace",
@@ -14,6 +15,7 @@ members = [
   "contracts/fuzz_helpers",
   "contracts/dao_governance",
   "contracts/merkle_distributor",
+  "contracts/payment_splitter",
   "tests/integration",
 ]
 exclude = ["contracts/hello-world"]

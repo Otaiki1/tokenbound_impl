@@ -12,6 +12,8 @@ use super::*;
 use fuzz_helpers::{arb_ascii_text, arb_i128_range, arb_u128_range, arb_u32_range, arb_u64_range, assert_invariant};
 use soroban_sdk::{testutils::Address as _, Address, Env, String, Vec};
 use proptest::prelude::*;
+use soroban_sdk::testutils::Ledger as _;
+use soroban_sdk::{testutils::Address as _, Address, Env, String, Vec};
 
 // Mock implementation for cross-contract calls
 #[contract]
@@ -41,7 +43,7 @@ fn setup(env: &Env) -> (EventManagerClient<'_>, Address) {
 
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(50))]
-    
+
     /// Fuzz test for event creation.
     /// Validates that various inputs for event creation do not cause panics
     /// and that basic constraints hold.
