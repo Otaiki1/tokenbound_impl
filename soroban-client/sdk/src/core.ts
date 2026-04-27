@@ -196,7 +196,9 @@ export class SorobanSdkCore {
       const sent = await this.rpcServer.sendTransaction(signedTx);
       if (sent.status === "ERROR") {
         throw new Error(
-          sent.errorResultXdr || "Transaction submission failed.",
+          sent.errorResult
+            ? String(sent.errorResult)
+            : "Transaction submission failed.",
         );
       }
       const confirmed = await this.waitForTransaction(sent.hash);
