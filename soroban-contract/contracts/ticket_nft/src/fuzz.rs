@@ -3,18 +3,26 @@
 //! Fuzz tests for the TicketNft contract.
 //!
 //! Property-based testing ensures that invariants like total supply, ownership rules,
-//! and metadata integrity hold under random operations. This helps catch subtle
-//! vulnerabilities where sequence of operations (e.g., mint-transfer-burn) might
-//! lead to corrupted storage or double-ownership states.
+//! and metadata integrity hold under random operations.
 
 use super::*;
+use fuzz_helpers::{arb_ascii_text, arb_u128_range, arb_u32_range, assert_invariant};
 use soroban_sdk::{testutils::Address as _, Address, Env, String};
 use proptest::prelude::*;
 
 fn setup(env: &Env) -> (TicketNftClient<'_>, Address, Address) {
     let minter = Address::generate(env);
     let admin = Address::generate(env);
-    let contract_id = env.register(TicketNft, (&minter, &admin, String::from_str(env, "Ticket"), String::from_str(env, "TKT"), String::from_str(env, "https://example.com/")));
+    let contract_id = env.register(
+        TicketNft,
+        (
+            &minter,
+            &admin,
+            String::from_str(env, "Ticket"),
+            String::from_str(env, "TKT"),
+            String::from_str(env, "https://example.com/"),
+        ),
+    );
     let client = TicketNftClient::new(env, &contract_id);
     env.mock_all_auths();
     (client, minter, admin)
@@ -25,59 +33,55 @@ proptest! {
 
     #[test]
     fn fuzz_nft_lifecycle(
-        name in "[a-zA-Z0-9 ]{0,100}",
-        description in "[a-zA-Z0-9 ]{0,200}",
-        image in "[a-zA-Z0-9:/._]{0,100}",
-        event_id in 0u32..1000u32,
-        tier in "[a-zA-Z0-9 ]{0,20}",
+        name in arb_ascii_text(100),
+        description in arb_ascii_text(200),
+        image in arb_ascii_text(100),
+        event_id in arb_u32_range(0, 1000),
+        tier in arb_ascii_text(20),
     ) {
         let env = Env::default();
         let (client, _minter, _admin) = setup(&env);
         let user1 = Address::generate(&env);
         let user2 = Address::generate(&env);
 
-        // 1. Mint
         let mint_res = client.try_mint_ticket_nft(
-            &user1, 
+            &user1,
             &String::from_str(&env, &name),
             &String::from_str(&env, &description),
             &String::from_str(&env, &image),
             &event_id,
             &String::from_str(&env, &tier),
-            &None
+            &None,
         );
 
         if let Ok(Ok(token_id)) = mint_res {
-            // Invariants after mint
+            assert_invariant(token_id > 0, "mint produces a valid token id");
             assert_eq!(client.owner_of(&token_id), user1);
             assert_eq!(client.balance_of(&user1), 1);
-            
-            // 2. Transfer
+            assert_eq!(client.balance_of(&user2), 0);
+
             let transfer_res = client.try_transfer_from(&user1, &user2, &token_id);
             if transfer_res.is_ok() {
                 assert_eq!(client.owner_of(&token_id), user2);
                 assert_eq!(client.balance_of(&user1), 0);
                 assert_eq!(client.balance_of(&user2), 1);
-                
-                // 3. Burn
-                client.burn(&token_id);
-                assert!(!client.is_valid(&token_id));
+
+                client.burn(&token_id).expect("burn should succeed after transfer");
+                assert_invariant(!client.is_valid(&token_id), "burn removes token validity");
                 assert_eq!(client.balance_of(&user2), 0);
             }
         }
     }
-    
+
     #[test]
     fn fuzz_transfer_adversarial(
-        token_id in 0u128..100u128,
+        token_id in arb_u128_range(0, 100),
     ) {
         let env = Env::default();
         let (client, _minter, _admin) = setup(&env);
         let user1 = Address::generate(&env);
         let user2 = Address::generate(&env);
-        
-        // Try to transfer non-existent or random token_id
-        // Should not panic, should return error
+
         let _ = client.try_transfer_from(&user1, &user2, &token_id);
     }
 }

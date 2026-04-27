@@ -3,12 +3,15 @@ resolver = "2"
 members = [
   "contracts/upgradeable",
   "contracts/collections",
+  "contracts/upgradeable_reference",
   "contracts/tba_account",
   "contracts/tba_registry",
   "contracts/ticket_nft",
   "contracts/ticket_factory",
   "contracts/event_manager",
   "contracts/marketplace",
+  "contracts/fuzz_helpers",
+  "contracts/dao_governance",
   "tests/integration",
 ]
 exclude = ["contracts/hello-world"]
