@@ -191,3 +191,6 @@ where
         .persistent()
         .extend_ttl(key, default_ttl_threshold(), default_ttl_extend_to());
 }
+
+#[cfg(test)]
+mod test;

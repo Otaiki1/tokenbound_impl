@@ -50,15 +50,28 @@ pub enum DataKey {
     ArchivedEvent(u32),
     EventCounter,
     TicketFactory,
+    /// Optional: TBA registry address used to resolve ticket TBAs
+    TbaRegistry,
+    /// Optional: TBA implementation hash (see `tba_registry::{get_account,create_account}`)
+    TbaImplementationHash,
+    /// Optional: TBA salt used to derive deterministic TBAs
+    TbaSalt,
+    /// POAP contract (minter should be this EventManager)
+    PoapNft,
     RefundClaimed(u32, Address),
     EventBuyers(u32),
     EventTiers(u32),
     BuyerPurchase(u32, Address),
+    BuyerTicketTokenId(u32, Address),
     Waitlist(u32),
     EventBalance(u32),
     FundsWithdrawn(u32),
     OrganizerOpenEventCount(Address),
     OrganizerLastCreateTs(Address),
+    Attendance(u32, Address),
+    Attendees(u32),
+    PoapDistributed(u32),
+    DefaultPoapMetadata(u32),
 }
 
 #[contracttype]
@@ -128,6 +141,24 @@ pub struct BuyerPurchase {
     pub total_paid: i128,
 }
 
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PoapBadgeMetadata {
+    pub name: String,
+    pub description: String,
+    pub image: String,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PoapMintMetadata {
+    pub event_id: u32,
+    pub name: String,
+    pub description: String,
+    pub image: String,
+    pub issued_at: u64,
+}
+
 #[contract]
 pub struct EventManager;
 
@@ -156,6 +187,204 @@ impl EventManager {
         env.storage().instance().set(&DataKey::EventCounter, &0u32);
         upg::extend_instance_ttl(&env);
         Ok(())
+    }
+
+    /// Configure POAP + TBA integration (optional, can be called anytime by admin).
+    ///
+    /// - `tba_registry`: used to resolve the deterministic ticket TBA for a ticket token_id
+    /// - `tba_implementation_hash`: passed through to `tba_registry.get_account(...)`
+    /// - `tba_salt`: passed through to `tba_registry.get_account(...)`
+    /// - `poap_nft`: POAP contract address (minter should be this EventManager)
+    pub fn configure_poap(
+        env: Env,
+        tba_registry: Address,
+        tba_implementation_hash: BytesN<32>,
+        tba_salt: BytesN<32>,
+        poap_nft: Address,
+    ) -> Result<(), Error> {
+        upg::require_admin(&env);
+
+        env.storage()
+            .instance()
+            .set(&DataKey::TbaRegistry, &tba_registry);
+        env.storage()
+            .instance()
+            .set(&DataKey::TbaImplementationHash, &tba_implementation_hash);
+        env.storage().instance().set(&DataKey::TbaSalt, &tba_salt);
+        env.storage().instance().set(&DataKey::PoapNft, &poap_nft);
+        upg::extend_instance_ttl(&env);
+        Ok(())
+    }
+
+    /// Set default POAP metadata template for an event.
+    pub fn set_default_poap_metadata(
+        env: Env,
+        event_id: u32,
+        metadata: PoapBadgeMetadata,
+    ) -> Result<(), Error> {
+        upg::require_not_paused(&env);
+        let event: Event = Self::get_event(env.clone(), event_id)?;
+        event.organizer.require_auth();
+
+        env.storage()
+            .persistent()
+            .set(&DataKey::DefaultPoapMetadata(event_id), &metadata);
+        Self::extend_persistent_ttl(&env, &DataKey::DefaultPoapMetadata(event_id));
+        Ok(())
+    }
+
+    /// Mark attendance for a buyer (ticket holder).
+    ///
+    /// - Must be called by the event organizer.
+    /// - Verifies the buyer currently holds the event ticket NFT.
+    pub fn mark_attendance(env: Env, event_id: u32, buyer: Address) -> Result<(), Error> {
+        upg::require_not_paused(&env);
+        let event: Event = Self::get_event(env.clone(), event_id)?;
+        event.organizer.require_auth();
+
+        // Verify buyer currently holds a ticket.
+        let bal: u128 = env.invoke_contract(
+            &event.ticket_nft_addr,
+            &Symbol::new(&env, "balance_of"),
+            soroban_sdk::vec![&env, buyer.clone().into_val(&env)],
+        );
+        if bal == 0 {
+            return Err(Error::NotABuyer);
+        }
+
+        let attend_key = DataKey::Attendance(event_id, buyer.clone());
+        if env.storage().persistent().has(&attend_key) {
+            return Ok(());
+        }
+
+        env.storage().persistent().set(&attend_key, &true);
+        Self::extend_persistent_ttl(&env, &attend_key);
+
+        let list_key = DataKey::Attendees(event_id);
+        let mut attendees: Vec<Address> = env
+            .storage()
+            .persistent()
+            .get(&list_key)
+            .unwrap_or_else(|| Vec::new(&env));
+        attendees.push_back(buyer.clone());
+        env.storage().persistent().set(&list_key, &attendees);
+        Self::extend_persistent_ttl(&env, &list_key);
+
+        env.events()
+            .publish((Symbol::new(&env, "attendance_marked"),), (event_id, buyer));
+        Ok(())
+    }
+
+    /// Batch distribute POAPs after the event ends.
+    ///
+    /// - Called by the event organizer.
+    /// - Mints POAPs to the ticket TBA (deterministic) for each attendee.
+    pub fn distribute_poaps(env: Env, event_id: u32) -> Result<u32, Error> {
+        upg::require_not_paused(&env);
+        let event: Event = Self::get_event(env.clone(), event_id)?;
+        event.organizer.require_auth();
+
+        if env.ledger().timestamp() <= event.end_date {
+            return Err(Error::EventNotEnded);
+        }
+
+        if env
+            .storage()
+            .persistent()
+            .has(&DataKey::PoapDistributed(event_id))
+        {
+            return Ok(0);
+        }
+
+        let poap_addr: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::PoapNft)
+            .ok_or(Error::FactoryNotInitialized)?;
+
+        let tba_registry: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::TbaRegistry)
+            .ok_or(Error::FactoryNotInitialized)?;
+        let impl_hash: BytesN<32> = env
+            .storage()
+            .instance()
+            .get(&DataKey::TbaImplementationHash)
+            .ok_or(Error::FactoryNotInitialized)?;
+        let salt: BytesN<32> = env
+            .storage()
+            .instance()
+            .get(&DataKey::TbaSalt)
+            .ok_or(Error::FactoryNotInitialized)?;
+
+        let attendees: Vec<Address> = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Attendees(event_id))
+            .unwrap_or_else(|| Vec::new(&env));
+
+        let badge_md: PoapBadgeMetadata = env
+            .storage()
+            .persistent()
+            .get(&DataKey::DefaultPoapMetadata(event_id))
+            .unwrap_or(PoapBadgeMetadata {
+                name: String::from_str(&env, "POAP"),
+                description: String::from_str(&env, "Proof of Attendance"),
+                image: String::from_str(&env, ""),
+            });
+
+        let mut minted: u32 = 0;
+        for attendee in attendees.iter() {
+            let token_id: u128 = env
+                .storage()
+                .persistent()
+                .get(&DataKey::BuyerTicketTokenId(event_id, attendee.clone()))
+                .unwrap_or(0u128);
+            if token_id == 0 {
+                continue;
+            }
+
+            // Resolve deterministic ticket TBA.
+            let tba_addr: Address = env.invoke_contract(
+                &tba_registry,
+                &Symbol::new(&env, "get_account"),
+                soroban_sdk::vec![
+                    &env,
+                    impl_hash.clone().into_val(&env),
+                    event.ticket_nft_addr.clone().into_val(&env),
+                    token_id.into_val(&env),
+                    salt.clone().into_val(&env),
+                ],
+            );
+
+            // Mint POAP NFT to the ticket TBA.
+            let poap_md = PoapMintMetadata {
+                event_id,
+                name: badge_md.name.clone(),
+                description: badge_md.description.clone(),
+                image: badge_md.image.clone(),
+                issued_at: env.ledger().timestamp(),
+            };
+            env.invoke_contract::<u128>(
+                &poap_addr,
+                &Symbol::new(&env, "mint_poap"),
+                soroban_sdk::vec![&env, tba_addr.into_val(&env), poap_md.into_val(&env),],
+            );
+            minted = minted.saturating_add(1);
+        }
+
+        env.storage()
+            .persistent()
+            .set(&DataKey::PoapDistributed(event_id), &true);
+        Self::extend_persistent_ttl(&env, &DataKey::PoapDistributed(event_id));
+
+        env.events().publish(
+            (Symbol::new(&env, "poaps_distributed"),),
+            (event_id, minted),
+        );
+
+        Ok(minted)
     }
 
     pub fn initialize_legacy(env: Env, ticket_factory: Address) -> Result<(), Error> {
@@ -504,10 +733,18 @@ impl EventManager {
         }
 
         for _ in 0..quantity {
-            env.invoke_contract::<u128>(
+            let minted_token_id: u128 = env.invoke_contract(
                 &event.ticket_nft_addr,
                 &Symbol::new(&env, "mint_ticket_nft"),
                 soroban_sdk::vec![&env, buyer.clone().into_val(&env)],
+            );
+            env.storage().persistent().set(
+                &DataKey::BuyerTicketTokenId(event_id, buyer.clone()),
+                &minted_token_id,
+            );
+            Self::extend_persistent_ttl(
+                &env,
+                &DataKey::BuyerTicketTokenId(event_id, buyer.clone()),
             );
         }
 
@@ -896,45 +1133,41 @@ impl EventManager {
         Ok(())
     }
 
-    fn validate_bounded_string(s: &String, max_bytes: u32) -> Result<(), Error> {
-        if s.len() > max_bytes {
-            return Err(Error::InvalidTierConfig); // Or some appropriate error
-        }
-        Ok(())
-    }
-
-    fn validate_ticket_price(price: i128) -> Result<(), Error> {
-        if price < 0 {
-            return Err(Error::NegativeTicketPrice);
-        }
-        Ok(())
-    }
-
-    fn enforce_organizer_limits_and_rate(_env: &Env, _organizer: &Address) -> Result<(), Error> {
-        // Placeholder for real logic
-        Ok(())
-    }
-
-    fn validate_event_span(start: u64, end: u64) -> Result<(), Error> {
-        if end <= start {
-            return Err(Error::InvalidEndDate);
-        }
-        Ok(())
-    }
-
-    fn validate_start_not_too_far(_start: u64, _current: u64) -> Result<(), Error> {
-        Ok(())
-    }
-
     fn commit_organizer_create(env: &Env, organizer: &Address) {
-        let ts_key = DataKey::EventCounter; // Dummy key for timestamp if not defined
+        let count_key = DataKey::OrganizerOpenEventCount(organizer.clone());
+        let current: u32 = env.storage().persistent().get(&count_key).unwrap_or(0);
         env.storage()
-            .instance()
+            .persistent()
+            .set(&count_key, &current.saturating_add(1));
+        Self::extend_persistent_ttl(env, &count_key);
+
+        let ts_key = DataKey::OrganizerLastCreateTs(organizer.clone());
+        env.storage()
+            .persistent()
             .set(&ts_key, &env.ledger().timestamp());
-        upg::extend_instance_ttl(env);
+        Self::extend_persistent_ttl(env, &ts_key);
     }
 
-    fn decrement_organizer_open_events(_env: &Env, _organizer: &Address) {
+    fn decrement_organizer_open_events(env: &Env, organizer: &Address) {
+        let count_key = DataKey::OrganizerOpenEventCount(organizer.clone());
+        let current: u32 = env.storage().persistent().get(&count_key).unwrap_or(0);
+        env.storage()
+            .persistent()
+            .set(&count_key, &current.saturating_sub(1));
+        Self::extend_persistent_ttl(env, &count_key);
+    }
+
+    fn try_promote_from_waitlist(env: &Env, event_id: u32) {
+        let key = DataKey::Waitlist(event_id);
+        if let Some(waitlist) = env.storage().persistent().get::<_, Vec<Address>>(&key) {
+            if !waitlist.is_empty() {
+                env.events().publish(
+                    (Symbol::new(env, "waitlist_promotion_skipped"),),
+                    (event_id, waitlist.len()),
+                );
+                Self::extend_persistent_ttl(env, &key);
+            }
+        }
     }
 
     fn get_and_increment_counter(env: &Env) -> Result<u32, Error> {
@@ -1044,6 +1277,6 @@ impl EventManager {
 }
 
 #[cfg(test)]
-mod test;
-#[cfg(test)]
 mod fuzz;
+#[cfg(test)]
+mod test;
