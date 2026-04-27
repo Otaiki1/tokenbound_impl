@@ -8,6 +8,14 @@ use soroban_sdk::{
 
 use upgradeable as upg;
 
+/// Token name returned by [`TicketNft::name`]. Static contract-level
+/// metadata; per-ticket names live in [`TicketMetadata::name`].
+pub const TOKEN_NAME: &str = "CrowdPass Ticket";
+
+/// Token symbol returned by [`TicketNft::symbol`]. Mirrors the ERC-20
+/// `symbol()` getter expected by interoperability tooling.
+pub const TOKEN_SYMBOL: &str = "TICKET";
+
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 #[repr(u32)]
@@ -43,6 +51,28 @@ pub struct OffChainMetadata {
 pub struct EventInfo {
     pub event_name: String,
     pub organizer: Address,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TicketMintedEvent {
+    pub contract_address: Address,
+    pub token_id: u128,
+    pub recipient: Address,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MetadataUpdatedEvent {
+    pub contract_address: Address,
+    pub token_id: u128,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct OffChainUpdatedEvent {
+    pub contract_address: Address,
+    pub token_id: u128,
 }
 
 #[derive(Clone)]
@@ -121,8 +151,13 @@ impl TicketNft {
         Self::extend_persistent_ttl(&env, &DataKey::Metadata(token_id));
         upg::extend_instance_ttl(&env);
 
+        let event = TicketMintedEvent {
+            contract_address: env.current_contract_address(),
+            token_id,
+            recipient: recipient.clone(),
+        };
         env.events()
-            .publish((Symbol::new(&env, "ticket_minted"),), (token_id, recipient));
+            .publish((Symbol::new(&env, "TicketMinted"),), event);
 
         Ok(token_id)
     }
@@ -196,8 +231,12 @@ impl TicketNft {
             .set(&DataKey::Metadata(token_id), &metadata);
         Self::extend_persistent_ttl(&env, &DataKey::Metadata(token_id));
 
+        let event = MetadataUpdatedEvent {
+            contract_address: env.current_contract_address(),
+            token_id,
+        };
         env.events()
-            .publish((Symbol::new(&env, "metadata_updated"),), (token_id,));
+            .publish((Symbol::new(&env, "MetadataUpdated"),), event);
 
         Ok(())
     }
@@ -224,8 +263,12 @@ impl TicketNft {
             .set(&DataKey::OffChain(token_id), &off_chain);
         Self::extend_persistent_ttl(&env, &DataKey::OffChain(token_id));
 
+        let event = OffChainUpdatedEvent {
+            contract_address: env.current_contract_address(),
+            token_id,
+        };
         env.events()
-            .publish((Symbol::new(&env, "offchain_updated"),), (token_id,));
+            .publish((Symbol::new(&env, "OffChainUpdated"),), event);
 
         Ok(())
     }
@@ -294,6 +337,11 @@ impl TicketNft {
         Self::extend_persistent_ttl(&env, &DataKey::Balance(from));
         Self::extend_persistent_ttl(&env, &DataKey::Balance(to));
 
+        env.events().publish(
+            (Symbol::new(&env, "ticket_transferred"),),
+            (token_id, from, to),
+        );
+
         Ok(())
     }
 
@@ -313,11 +361,28 @@ impl TicketNft {
             .set(&DataKey::Balance(owner.clone()), &0u128);
         Self::extend_persistent_ttl(&env, &DataKey::Balance(owner));
 
+        env.events().publish(
+            (Symbol::new(&env, "ticket_burned"),),
+            (token_id, owner),
+        );
+
         Ok(())
     }
 
     pub fn is_valid(env: Env, token_id: u128) -> bool {
         env.storage().persistent().has(&DataKey::Owner(token_id))
+    }
+
+    /// ERC-20 / SEP-41 compatible token name. Returned value is constant
+    /// across the contract lifetime — per-ticket names live in
+    /// [`TicketMetadata::name`].
+    pub fn name(env: Env) -> String {
+        String::from_str(&env, TOKEN_NAME)
+    }
+
+    /// ERC-20 / SEP-41 compatible token symbol.
+    pub fn symbol(env: Env) -> String {
+        String::from_str(&env, TOKEN_SYMBOL)
     }
 
     pub fn get_minter(env: Env) -> Result<Address, Error> {
@@ -384,3 +449,6 @@ impl TicketNft {
 
 #[cfg(test)]
 mod test;
+
+#[cfg(test)]
+mod fuzz;

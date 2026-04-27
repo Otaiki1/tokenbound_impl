@@ -62,6 +62,27 @@ pub enum DataKey {
     MaxListingsPerUser,
 }
 
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ListingCreatedEvent {
+    pub contract_address: Address,
+    pub listing_id: u32,
+    pub seller: Address,
+    pub ticket_contract: Address,
+    pub token_id: i128,
+    pub price: i128,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PurchaseCompletedEvent {
+    pub contract_address: Address,
+    pub listing_id: u32,
+    pub buyer: Address,
+    pub seller: Address,
+    pub price: i128,
+}
+
 #[contract]
 pub struct MarketplaceContract;
 
@@ -155,10 +176,16 @@ impl MarketplaceContract {
         Self::extend_persistent_ttl(&env, &DataKey::Listing(listing_id));
         Self::extend_persistent_ttl(&env, &DataKey::TotalListings);
 
-        env.events().publish(
-            ("listing_created",),
-            (listing_id, seller, ticket_contract, token_id, price),
-        );
+        let event = ListingCreatedEvent {
+            contract_address: env.current_contract_address(),
+            listing_id,
+            seller: seller.clone(),
+            ticket_contract: ticket_contract.clone(),
+            token_id,
+            price,
+        };
+        env.events()
+            .publish((Symbol::new(&env, "ListingCreated"),), event);
 
         listing_id
     }
@@ -246,10 +273,15 @@ impl MarketplaceContract {
         Self::extend_persistent_ttl(&env, &DataKey::Sale(total_sales));
         Self::extend_persistent_ttl(&env, &DataKey::TotalSales);
 
-        env.events().publish(
-            ("purchase_completed",),
-            (listing_id, buyer, listing.seller, listing.price),
-        );
+        let event = PurchaseCompletedEvent {
+            contract_address: env.current_contract_address(),
+            listing_id,
+            buyer: buyer.clone(),
+            seller: listing.seller.clone(),
+            price: listing.price,
+        };
+        env.events()
+            .publish((Symbol::new(&env, "PurchaseCompleted"),), event);
 
         Ok(())
     }
