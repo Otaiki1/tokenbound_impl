@@ -54,3 +54,75 @@ const result = await sdk.eventManager.createEvent(
 cd soroban-client
 npm run sdk:generate-types
 ```
+
+### Batch ledger-entry fetch
+
+`batchGetLedgerEntries` wraps `rpc.Server.getLedgerEntries` so callers can
+read many keys in one workflow. It chunks over the RPC's per-call key
+limit, runs chunks concurrently, aligns missing entries to `null` at
+their input index, and surfaces per-chunk RPC failures in a structured
+`errors` array instead of bubbling the first one and losing the rest.
+
+```ts
+import { batchGetLedgerEntries } from "@crowdpass/tokenbound-sdk";
+
+const result = await batchGetLedgerEntries(sdk.rpcServer, ledgerKeys);
+
+for (let i = 0; i < ledgerKeys.length; i += 1) {
+  const entry = result.entries[i];
+  if (entry === undefined) {
+    // chunk failed — see result.errors
+  } else if (entry === null) {
+    // key not present on-chain
+  } else {
+    // entry.val is the ledger data
+  }
+}
+
+// {found, missing, failed, latestLedger} are aggregated for monitoring.
+```
+
+`chunkSize`, `concurrency`, and `keyId` are all overridable.
+### Caching contract schemas at runtime
+
+Soroban contracts in this repo follow the upgradeable pattern, so each
+contract's deployed `version()` and WASM hash uniquely identify its
+on-chain spec. `ContractSchemaCache` caches a fetched spec keyed by that
+identity and refreshes automatically when either component changes:
+
+```ts
+import {
+  ContractSchemaCache,
+  WebStorageSchemaStore,
+  type SchemaIdentityProbe,
+  type SchemaResolver,
+} from "@crowdpass/tokenbound-sdk";
+
+const probe: SchemaIdentityProbe = {
+  async probe(contractId) {
+    const version = Number(await sdk.eventManager.version());
+    const wasmHash = await fetchWasmHash(contractId); // app-specific
+    return { version, wasmHash };
+  },
+};
+
+const resolver: SchemaResolver = {
+  async resolve(contractId) {
+    return loadSpecFromRpc(contractId); // app-specific
+  },
+};
+
+const schemaCache = new ContractSchemaCache({
+  store: new WebStorageSchemaStore(window.localStorage),
+  resolver,
+  probe,
+});
+
+const spec = await schemaCache.get(contractId);
+```
+
+`MemorySchemaStore` is used by default and is enough for server contexts;
+`WebStorageSchemaStore` persists across reloads in the browser. Omit
+`probe` if you only want to refresh on explicit `cache.refresh(...)` or
+`cache.invalidate(...)` calls. Subscribe via `cache.subscribe(listener)`
+to observe `hit` / `miss` / `refreshed` / `invalidated` events.
