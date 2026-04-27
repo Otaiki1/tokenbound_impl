@@ -20,6 +20,32 @@ pub const DEFAULT_TTL_THRESHOLD_LEDGERS: u32 = 30 * LEDGERS_PER_DAY;
 pub const DEFAULT_TTL_EXTEND_TO_LEDGERS: u32 = 100 * LEDGERS_PER_DAY;
 
 #[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct UpgradeScheduledEvent {
+    pub contract_address: Address,
+    pub new_wasm_hash: BytesN<32>,
+    pub scheduled_at: u32,
+    pub commit_at: u32,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct UpgradedEvent {
+    pub contract_address: Address,
+    pub new_wasm_hash: BytesN<32>,
+    pub old_version: u32,
+    pub new_version: u32,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AdminChangedEvent {
+    pub contract_address: Address,
+    pub old_admin: Address,
+    pub new_admin: Address,
+}
+
+#[contracttype]
 #[derive(Clone)]
 pub enum UpgradeKey {
     /// Contract administrator
@@ -109,14 +135,14 @@ pub fn schedule_upgrade(env: &Env, new_wasm_hash: BytesN<32>) {
         &UpgradeKey::PendingUpgrade,
         &(new_wasm_hash.clone(), scheduled_at),
     );
-    env.events().publish(
-        (Symbol::new(env, "upgrade_scheduled"),),
-        (
-            new_wasm_hash,
-            scheduled_at,
-            scheduled_at + UPGRADE_DELAY_LEDGERS,
-        ),
-    );
+    let event = UpgradeScheduledEvent {
+        contract_address: env.current_contract_address(),
+        new_wasm_hash: new_wasm_hash.clone(),
+        scheduled_at,
+        commit_at: scheduled_at + UPGRADE_DELAY_LEDGERS,
+    };
+    env.events()
+        .publish((Symbol::new(env, "UpgradeScheduled"),), event);
 }
 
 /// Cancel a pending upgrade. Admin only.
@@ -152,10 +178,14 @@ pub fn commit_upgrade(env: &Env) {
     env.deployer()
         .update_current_contract_wasm(new_wasm_hash.clone());
 
-    env.events().publish(
-        (Symbol::new(env, "upgraded"),),
-        (new_wasm_hash, old_version, new_version),
-    );
+    let event = UpgradedEvent {
+        contract_address: env.current_contract_address(),
+        new_wasm_hash: new_wasm_hash.clone(),
+        old_version,
+        new_version,
+    };
+    env.events()
+        .publish((Symbol::new(env, "Upgraded"),), event);
 }
 
 /// Transfer admin rights. Current admin only.
@@ -163,8 +193,13 @@ pub fn transfer_admin(env: &Env, new_admin: Address) {
     require_admin(env);
     let old_admin = get_admin(env);
     set_admin(env, &new_admin);
+    let event = AdminChangedEvent {
+        contract_address: env.current_contract_address(),
+        old_admin,
+        new_admin: new_admin.clone(),
+    };
     env.events()
-        .publish((Symbol::new(env, "admin_changed"),), (old_admin, new_admin));
+        .publish((Symbol::new(env, "AdminChanged"),), event);
 }
 
 // ── Storage TTL helpers ──────────────────────────────────────────────────────
@@ -191,3 +226,6 @@ where
         .persistent()
         .extend_ttl(key, default_ttl_threshold(), default_ttl_extend_to());
 }
+
+#[cfg(test)]
+mod test;

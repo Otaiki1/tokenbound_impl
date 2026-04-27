@@ -4,7 +4,13 @@ use soroban_sdk::{
     IntoVal, Symbol, Val, Vec,
 };
 
+use nonce_manager::{get_nonce, increment_nonce};
 use upgradeable as upg;
+
+mod asset_transfer;
+
+#[cfg(test)]
+mod asset_transfer_test;
 
 // Error handling
 #[contracterror]
@@ -25,7 +31,6 @@ pub enum DataKey {
     ImplementationHash, // Hash used for deployment (u256)
     Salt,               // Deployment salt (u256)
     Initialized,        // Init flag
-    Nonce,              // Transaction nonce counter
 }
 
 // Helper functions for storage
@@ -90,23 +95,10 @@ fn set_initialized(env: &Env, initialized: &bool) {
         .set(&DataKey::Initialized, initialized);
 }
 
-fn get_nonce(env: &Env) -> u64 {
-    env.storage()
-        .instance()
-        .get(&DataKey::Nonce)
-        .unwrap_or(0u64)
-}
-
-fn increment_nonce(env: &Env) -> u64 {
-    let current_nonce = get_nonce(env);
-    let new_nonce = current_nonce + 1;
-    env.storage().instance().set(&DataKey::Nonce, &new_nonce);
-    new_nonce
-}
-
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TransactionExecutedEvent {
+    pub contract_address: Address,
     pub to: Address,
     pub func: Symbol,
     pub nonce: u64,
@@ -195,41 +187,99 @@ impl TbaAccount {
     /// Only the current NFT owner can execute transactions
     /// This function increments the nonce and emits an event
     pub fn execute(env: Env, to: Address, func: Symbol, args: Vec<Val>) -> Result<Vec<Val>, Error> {
-        // Verify contract is initialized
         if !is_initialized(&env) {
             return Err(Error::NotInitialized);
         }
 
-        // Get the NFT owner and verify authorization
         let token_contract = get_token_contract(&env)?;
         let token_id = get_token_id(&env)?;
         let owner = get_nft_owner(&env, &token_contract, token_id);
 
-        // Require authorization from the NFT owner
         owner.require_auth();
 
-        // Increment nonce
         let nonce = increment_nonce(&env);
 
-        // Extend instance TTL on activity
         upg::extend_instance_ttl(&env);
 
-        // Emit transaction executed event
         let event = TransactionExecutedEvent {
+            contract_address: env.current_contract_address(),
             to: to.clone(),
             func: func.clone(),
             nonce,
         };
         env.events().publish(
-            (
-                Symbol::new(&env, "executed"),
-                Symbol::new(&env, "TransactionExecuted"),
-            ),
+            (Symbol::new(&env, "TransactionExecuted"),),
             event,
         );
 
-        // Invoke the target contract
         Ok(env.invoke_contract::<Vec<Val>>(&to, &func, args))
+    }
+
+    pub fn transfer_token(
+        env: Env,
+        token_address: Address,
+        to: Address,
+        amount: i128,
+    ) -> Result<(), Error> {
+        if !is_initialized(&env) {
+            return Err(Error::NotInitialized);
+        }
+
+        let token_contract = get_token_contract(&env)?;
+        let token_id = get_token_id(&env)?;
+        let owner = get_nft_owner(&env, &token_contract, token_id);
+
+        owner.require_auth();
+
+        let from = env.current_contract_address();
+        asset_transfer::transfer_token(&env, &token_address, &from, &to, amount)
+            .map_err(|_| Error::NotInitialized)
+    }
+
+    pub fn transfer_nft(
+        env: Env,
+        nft_contract: Address,
+        to: Address,
+        nft_token_id: u128,
+    ) -> Result<(), Error> {
+        if !is_initialized(&env) {
+            return Err(Error::NotInitialized);
+        }
+
+        let token_contract = get_token_contract(&env)?;
+        let token_id = get_token_id(&env)?;
+        let owner = get_nft_owner(&env, &token_contract, token_id);
+
+        owner.require_auth();
+
+        let from = env.current_contract_address();
+        asset_transfer::transfer_nft(&env, &nft_contract, &from, &to, nft_token_id)
+            .map_err(|_| Error::NotInitialized)
+    }
+
+    pub fn batch_transfer(
+        env: Env,
+        token_address: Address,
+        recipients: Vec<(Address, i128)>,
+    ) -> Result<u32, Error> {
+        if !is_initialized(&env) {
+            return Err(Error::NotInitialized);
+        }
+
+        let token_contract = get_token_contract(&env)?;
+        let token_id = get_token_id(&env)?;
+        let owner = get_nft_owner(&env, &token_contract, token_id);
+
+        owner.require_auth();
+
+        let from = env.current_contract_address();
+        asset_transfer::batch_transfer_tokens(&env, &token_address, &from, recipients)
+            .map_err(|_| Error::NotInitialized)
+    }
+
+    pub fn get_balance(env: Env, token_address: Address) -> i128 {
+        let account = env.current_contract_address();
+        asset_transfer::get_token_balance(&env, &token_address, &account)
     }
 
     // ── Upgrade / admin ──────────────────────────────────────────────────────
