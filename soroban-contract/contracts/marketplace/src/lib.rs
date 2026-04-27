@@ -19,6 +19,9 @@ pub enum MarketplaceError {
     PriceMustBePositive = 7,
     InsufficientBalance = 8,
     Unauthorized = 9,
+    InvalidRoyaltyPercentage = 10,
+    RoyaltyConfigNotFound = 11,
+    RoyaltyRecipientsExceeded = 12,
 }
 
 #[derive(Clone)]
@@ -51,6 +54,21 @@ pub struct PriceCap {
     pub active: bool,
 }
 
+#[derive(Clone)]
+#[contracttype]
+pub struct RoyaltyRecipient {
+    pub recipient: Address,
+    pub percentage: u32, // Percentage in basis points (1/10000), max 10000 = 100%
+}
+
+#[derive(Clone)]
+#[contracttype]
+pub struct RoyaltyConfig {
+    pub recipients: Vec<RoyaltyRecipient>,
+    pub total_percentage: u32, // Sum of all percentages in basis points
+    pub active: bool,
+}
+
 #[contracttype]
 pub enum DataKey {
     Listing(u32),
@@ -60,6 +78,8 @@ pub enum DataKey {
     PriceCap,
     Admin,
     MaxListingsPerUser,
+    RoyaltyConfig,
+    MaxRoyaltyRecipients,
 }
 
 #[contracttype]
@@ -116,11 +136,15 @@ impl MarketplaceContract {
         env.storage()
             .persistent()
             .set(&DataKey::MaxListingsPerUser, &10u32);
+        env.storage()
+            .persistent()
+            .set(&DataKey::MaxRoyaltyRecipients, &10u32); // Max 10 royalty recipients
         Self::extend_persistent_ttl(&env, &DataKey::PriceCap);
         Self::extend_persistent_ttl(&env, &DataKey::Admin);
         Self::extend_persistent_ttl(&env, &DataKey::TotalListings);
         Self::extend_persistent_ttl(&env, &DataKey::TotalSales);
         Self::extend_persistent_ttl(&env, &DataKey::MaxListingsPerUser);
+        Self::extend_persistent_ttl(&env, &DataKey::MaxRoyaltyRecipients);
     }
 
     pub fn create_listing(
@@ -228,8 +252,53 @@ impl MarketplaceContract {
 
         let token_client = token::Client::new(&env, &payment_token);
 
-        // Transfer payment from buyer to seller
-        token_client.transfer(&buyer, &listing.seller, &listing.price);
+        // Check if royalty config exists and is active
+        let royalty_config = env.storage().persistent().get(&DataKey::RoyaltyConfig);
+        let seller_receives = if let Some(ref config) = royalty_config {
+            if config.active {
+                // Calculate and distribute royalties
+                let mut seller_amount = listing.price;
+
+                for recipient in config.recipients.iter() {
+                    // Calculate royalty amount: (price * percentage) / 10000
+                    let royalty_amount = listing
+                        .price
+                        .checked_mul(recipient.percentage as i128)
+                        .ok_or(MarketplaceError::InvalidRoyaltyPercentage)?
+                        / 10000;
+
+                    if royalty_amount > 0 {
+                        token_client.transfer(&buyer, &recipient.recipient, &royalty_amount);
+                        seller_amount = seller_amount
+                            .checked_sub(royalty_amount)
+                            .ok_or(MarketplaceError::InsufficientBalance)?;
+
+                        env.events().publish(
+                            ("royalty_paid",),
+                            (
+                                listing_id,
+                                recipient.recipient.clone(),
+                                recipient.percentage,
+                                royalty_amount,
+                            ),
+                        );
+                    }
+                }
+
+                seller_amount
+            } else {
+                // Royalty config is inactive, seller gets full amount
+                listing.price
+            }
+        } else {
+            // No royalty config, seller gets full amount
+            listing.price
+        };
+
+        // Transfer remaining payment to seller
+        if seller_receives > 0 {
+            token_client.transfer(&buyer, &listing.seller, &seller_receives);
+        }
 
         // Transfer ticket NFT
         let ticket_client = token::Client::new(&env, &listing.ticket_contract);
@@ -424,6 +493,265 @@ impl MarketplaceContract {
         Ok(())
     }
 
+    // ── Royalty Management ───────────────────────────────────────────────────
+
+    pub fn initialize_royalty_config(
+        env: Env,
+        admin: Address,
+        recipients: Vec<RoyaltyRecipient>,
+    ) -> Result<(), MarketplaceError> {
+        admin.require_auth();
+
+        let stored_admin: Address = match env.storage().persistent().get(&DataKey::Admin) {
+            Some(addr) => addr,
+            None => return Err(MarketplaceError::PaymentTokenNotConfigured),
+        };
+
+        if admin != stored_admin {
+            return Err(MarketplaceError::Unauthorized);
+        }
+
+        // Validate and calculate total percentage
+        let mut total_percentage: u32 = 0;
+        for recipient in recipients.iter() {
+            total_percentage = total_percentage
+                .checked_add(recipient.percentage)
+                .ok_or(MarketplaceError::InvalidRoyaltyPercentage)?;
+        }
+
+        if total_percentage > 10000 {
+            return Err(MarketplaceError::InvalidRoyaltyPercentage);
+        }
+
+        let config = RoyaltyConfig {
+            recipients,
+            total_percentage,
+            active: true,
+        };
+
+        env.storage()
+            .persistent()
+            .set(&DataKey::RoyaltyConfig, &config);
+        Self::extend_persistent_ttl(&env, &DataKey::RoyaltyConfig);
+
+        env.events().publish(
+            ("royalty_config_initialized",),
+            (total_percentage, recipients.len()),
+        );
+
+        Ok(())
+    }
+
+    pub fn update_royalty_config(
+        env: Env,
+        admin: Address,
+        recipients: Vec<RoyaltyRecipient>,
+    ) -> Result<(), MarketplaceError> {
+        admin.require_auth();
+
+        let stored_admin: Address = match env.storage().persistent().get(&DataKey::Admin) {
+            Some(addr) => addr,
+            None => return Err(MarketplaceError::PaymentTokenNotConfigured),
+        };
+
+        if admin != stored_admin {
+            return Err(MarketplaceError::Unauthorized);
+        }
+
+        // Check max recipients
+        let max_recipients: u32 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::MaxRoyaltyRecipients)
+            .unwrap_or(10);
+
+        if recipients.len() > max_recipients {
+            return Err(MarketplaceError::RoyaltyRecipientsExceeded);
+        }
+
+        // Validate and calculate total percentage
+        let mut total_percentage: u32 = 0;
+        for recipient in recipients.iter() {
+            total_percentage = total_percentage
+                .checked_add(recipient.percentage)
+                .ok_or(MarketplaceError::InvalidRoyaltyPercentage)?;
+        }
+
+        if total_percentage > 10000 {
+            return Err(MarketplaceError::InvalidRoyaltyPercentage);
+        }
+
+        let config = RoyaltyConfig {
+            recipients,
+            total_percentage,
+            active: true,
+        };
+
+        env.storage()
+            .persistent()
+            .set(&DataKey::RoyaltyConfig, &config);
+        Self::extend_persistent_ttl(&env, &DataKey::RoyaltyConfig);
+
+        env.events().publish(
+            ("royalty_config_updated",),
+            (total_percentage, recipients.len()),
+        );
+
+        Ok(())
+    }
+
+    pub fn update_royalty_recipient(
+        env: Env,
+        admin: Address,
+        index: u32,
+        new_recipient: Address,
+    ) -> Result<(), MarketplaceError> {
+        admin.require_auth();
+
+        let stored_admin: Address = match env.storage().persistent().get(&DataKey::Admin) {
+            Some(addr) => addr,
+            None => return Err(MarketplaceError::PaymentTokenNotConfigured),
+        };
+
+        if admin != stored_admin {
+            return Err(MarketplaceError::Unauthorized);
+        }
+
+        let mut config: RoyaltyConfig = match env
+            .storage()
+            .persistent()
+            .get(&DataKey::RoyaltyConfig)
+        {
+            Some(c) => c,
+            None => return Err(MarketplaceError::RoyaltyConfigNotFound),
+        };
+
+        if index >= config.recipients.len() {
+            return Err(MarketplaceError::RoyaltyConfigNotFound);
+        }
+
+        // Update the recipient at the specified index
+        let mut recipient = config.recipients.get(index);
+        recipient.recipient = new_recipient.clone();
+        config.recipients.set(index, &recipient);
+
+        env.storage()
+            .persistent()
+            .set(&DataKey::RoyaltyConfig, &config);
+        Self::extend_persistent_ttl(&env, &DataKey::RoyaltyConfig);
+
+        env.events().publish(
+            ("royalty_recipient_updated",),
+            (index, new_recipient),
+        );
+
+        Ok(())
+    }
+
+    pub fn update_royalty_percentage(
+        env: Env,
+        admin: Address,
+        index: u32,
+        new_percentage: u32,
+    ) -> Result<(), MarketplaceError> {
+        admin.require_auth();
+
+        let stored_admin: Address = match env.storage().persistent().get(&DataKey::Admin) {
+            Some(addr) => addr,
+            None => return Err(MarketplaceError::PaymentTokenNotConfigured),
+        };
+
+        if admin != stored_admin {
+            return Err(MarketplaceError::Unauthorized);
+        }
+
+        let mut config: RoyaltyConfig = match env
+            .storage()
+            .persistent()
+            .get(&DataKey::RoyaltyConfig)
+        {
+            Some(c) => c,
+            None => return Err(MarketplaceError::RoyaltyConfigNotFound),
+        };
+
+        if index >= config.recipients.len() {
+            return Err(MarketplaceError::RoyaltyConfigNotFound);
+        }
+
+        // Calculate total without the old percentage at index
+        let old_percentage = config.recipients.get(index).percentage;
+        let mut new_total = config
+            .total_percentage
+            .checked_sub(old_percentage)
+            .ok_or(MarketplaceError::InvalidRoyaltyPercentage)?;
+
+        // Add the new percentage
+        new_total = new_total
+            .checked_add(new_percentage)
+            .ok_or(MarketplaceError::InvalidRoyaltyPercentage)?;
+
+        if new_total > 10000 {
+            return Err(MarketplaceError::InvalidRoyaltyPercentage);
+        }
+
+        // Update the percentage at the specified index
+        let mut recipient = config.recipients.get(index);
+        recipient.percentage = new_percentage;
+        config.recipients.set(index, &recipient);
+        config.total_percentage = new_total;
+
+        env.storage()
+            .persistent()
+            .set(&DataKey::RoyaltyConfig, &config);
+        Self::extend_persistent_ttl(&env, &DataKey::RoyaltyConfig);
+
+        env.events().publish(
+            ("royalty_percentage_updated",),
+            (index, new_percentage, new_total),
+        );
+
+        Ok(())
+    }
+
+    pub fn toggle_royalty_config(env: Env, admin: Address, active: bool) -> Result<(), MarketplaceError> {
+        admin.require_auth();
+
+        let stored_admin: Address = match env.storage().persistent().get(&DataKey::Admin) {
+            Some(addr) => addr,
+            None => return Err(MarketplaceError::PaymentTokenNotConfigured),
+        };
+
+        if admin != stored_admin {
+            return Err(MarketplaceError::Unauthorized);
+        }
+
+        let mut config: RoyaltyConfig = match env
+            .storage()
+            .persistent()
+            .get(&DataKey::RoyaltyConfig)
+        {
+            Some(c) => c,
+            None => return Err(MarketplaceError::RoyaltyConfigNotFound),
+        };
+
+        config.active = active;
+
+        env.storage()
+            .persistent()
+            .set(&DataKey::RoyaltyConfig, &config);
+        Self::extend_persistent_ttl(&env, &DataKey::RoyaltyConfig);
+
+        env.events().publish(("royalty_config_toggled",), (active,));
+
+        Ok(())
+    }
+
+    pub fn get_royalty_config(env: Env) -> Option<RoyaltyConfig> {
+        env.storage()
+            .persistent()
+            .get(&DataKey::RoyaltyConfig)
+    }
+
     // ── Upgrade / admin ──────────────────────────────────────────────────────
 
     pub fn schedule_upgrade(env: Env, new_wasm_hash: BytesN<32>) {
@@ -458,3 +786,6 @@ impl MarketplaceContract {
         upg::extend_persistent_ttl(env, key);
     }
 }
+
+#[cfg(test)]
+mod test_royalty;
