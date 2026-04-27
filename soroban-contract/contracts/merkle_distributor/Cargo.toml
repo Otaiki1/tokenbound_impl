@@ -1,5 +1,5 @@
 [package]
-name = "tba_account"
+name = "merkle_distributor"
 version = "0.0.0"
 edition = "2021"
 publish = false
@@ -9,7 +9,6 @@ crate-type = ["cdylib"]
 
 [dependencies]
 soroban-sdk = { workspace = true }
-nonce_manager = { path = "../nonce_manager" }
 upgradeable = { path = "../upgradeable" }
 
 [dev-dependencies]

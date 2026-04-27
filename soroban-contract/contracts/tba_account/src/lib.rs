@@ -4,6 +4,7 @@ use soroban_sdk::{
     IntoVal, Symbol, Val, Vec,
 };
 
+use nonce_manager::{get_nonce, increment_nonce};
 use upgradeable as upg;
 
 mod asset_transfer;
@@ -30,7 +31,6 @@ pub enum DataKey {
     ImplementationHash, // Hash used for deployment (u256)
     Salt,               // Deployment salt (u256)
     Initialized,        // Init flag
-    Nonce,              // Transaction nonce counter
 }
 
 // Helper functions for storage
@@ -93,20 +93,6 @@ fn set_initialized(env: &Env, initialized: &bool) {
     env.storage()
         .instance()
         .set(&DataKey::Initialized, initialized);
-}
-
-fn get_nonce(env: &Env) -> u64 {
-    env.storage()
-        .instance()
-        .get(&DataKey::Nonce)
-        .unwrap_or(0u64)
-}
-
-fn increment_nonce(env: &Env) -> u64 {
-    let current_nonce = get_nonce(env);
-    let new_nonce = current_nonce + 1;
-    env.storage().instance().set(&DataKey::Nonce, &new_nonce);
-    new_nonce
 }
 
 #[contracttype]
