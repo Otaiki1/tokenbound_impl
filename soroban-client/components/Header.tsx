@@ -15,6 +15,7 @@ const NAV_LINKS = [
   { href: "/my-tickets", label: "My Tickets" },
   { href: "/verifier", label: "Verifier" },
   { href: "/analytics", label: "Analytics" },
+  { href: "/orchestration-example", label: "Orchestration Example" },
 ];
 
 export default function Header() {

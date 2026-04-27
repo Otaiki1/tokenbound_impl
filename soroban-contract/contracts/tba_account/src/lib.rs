@@ -4,6 +4,7 @@ use soroban_sdk::{
     IntoVal, Symbol, Val, Vec,
 };
 
+use nonce_manager::{get_nonce, increment_nonce};
 use upgradeable as upg;
 
 // Error handling
@@ -25,7 +26,6 @@ pub enum DataKey {
     ImplementationHash, // Hash used for deployment (u256)
     Salt,               // Deployment salt (u256)
     Initialized,        // Init flag
-    Nonce,              // Transaction nonce counter
 }
 
 // Helper functions for storage
@@ -90,23 +90,10 @@ fn set_initialized(env: &Env, initialized: &bool) {
         .set(&DataKey::Initialized, initialized);
 }
 
-fn get_nonce(env: &Env) -> u64 {
-    env.storage()
-        .instance()
-        .get(&DataKey::Nonce)
-        .unwrap_or(0u64)
-}
-
-fn increment_nonce(env: &Env) -> u64 {
-    let current_nonce = get_nonce(env);
-    let new_nonce = current_nonce + 1;
-    env.storage().instance().set(&DataKey::Nonce, &new_nonce);
-    new_nonce
-}
-
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TransactionExecutedEvent {
+    pub contract_address: Address,
     pub to: Address,
     pub func: Symbol,
     pub nonce: u64,
@@ -216,15 +203,13 @@ impl TbaAccount {
 
         // Emit transaction executed event
         let event = TransactionExecutedEvent {
+            contract_address: env.current_contract_address(),
             to: to.clone(),
             func: func.clone(),
             nonce,
         };
         env.events().publish(
-            (
-                Symbol::new(&env, "executed"),
-                Symbol::new(&env, "TransactionExecuted"),
-            ),
+            (Symbol::new(&env, "TransactionExecuted"),),
             event,
         );
 

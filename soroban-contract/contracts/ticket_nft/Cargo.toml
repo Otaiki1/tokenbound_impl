@@ -14,3 +14,4 @@ upgradeable = { path = "../upgradeable" }
 [dev-dependencies]
 soroban-sdk = { workspace = true, features = ["testutils"] }
 proptest = { workspace = true }
+fuzz_helpers = { path = "../fuzz_helpers" }

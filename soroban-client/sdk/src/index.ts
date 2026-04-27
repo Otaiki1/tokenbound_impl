@@ -9,11 +9,13 @@ import {
 import { GENERATED_CONTRACT_SPECS } from "./generated/contracts";
 import type { TokenboundSdkConfig } from "./types";
 
+export * from "./batchLedgerEntries";
 export * from "./contracts";
 export * from "./core";
 export * from "./decoders";
 export * from "./errors";
 export * from "./generated/contracts";
+export * from "./schemaCache";
 export * from "./types";
 
 export class TokenboundSdk extends SorobanSdkCore {
@@ -37,3 +39,4 @@ export class TokenboundSdk extends SorobanSdkCore {
 export function createTokenboundSdk(config: TokenboundSdkConfig) {
   return new TokenboundSdk(config);
 }
+export * from "./offline-builder";

@@ -9,6 +9,7 @@ import {
 import { nativeToScVal, scValToNative } from "@stellar/stellar-base";
 
 import { mapSdkError } from "./errors";
+import { RetryPolicy } from "./retry";
 import type {
   Bytes32Like,
   ContractCallArtifact,
@@ -41,23 +42,28 @@ export function toBytesScVal(value: Bytes32Like): xdr.ScVal {
 
 export function toOptionScVal(
   value: string | number | bigint | undefined,
-  type: "string" | "u64" | "u128" | "i128"
+  type: "string" | "u64" | "u128" | "i128",
 ): xdr.ScVal {
   if (value === undefined) {
     return nativeToScVal(null, { type: "option" });
   }
-  return nativeToScVal({ Some: nativeToScVal(value, { type }) }, { type: "option" });
+  return nativeToScVal(
+    { Some: nativeToScVal(value, { type }) },
+    { type: "option" },
+  );
 }
 
 export class SorobanSdkCore {
   readonly config: TokenboundSdkConfig;
   readonly horizonServer: Horizon.Server;
   readonly rpcServer: rpc.Server;
+  readonly retryPolicy: RetryPolicy;
 
   constructor(config: TokenboundSdkConfig) {
     this.config = config;
     this.horizonServer = new Horizon.Server(config.horizonUrl);
     this.rpcServer = new rpc.Server(config.sorobanRpcUrl);
+    this.retryPolicy = new RetryPolicy(config.retryConfig);
   }
 
   getContractId(contract: ContractName): string {
@@ -84,7 +90,7 @@ export class SorobanSdkCore {
     const source = explicit ?? this.config.simulationSource;
     if (!source) {
       throw new Error(
-        "A simulation source account is required for read calls. Provide one in the SDK config or per call."
+        "A simulation source account is required for read calls. Provide one in the SDK config or per call.",
       );
     }
     return source;
@@ -93,7 +99,7 @@ export class SorobanSdkCore {
   async buildInvokeTransaction(
     source: string,
     artifact: ContractCallArtifact,
-    options?: InvokeOptions
+    options?: InvokeOptions,
   ) {
     const account = await this.horizonServer.loadAccount(source);
     const fee = options?.fee ?? Number(await this.horizonServer.fetchBaseFee());
@@ -115,12 +121,17 @@ export class SorobanSdkCore {
   async simulate(
     contract: ContractName,
     artifact: ContractCallArtifact,
-    options?: InvokeOptions
+    options?: InvokeOptions,
   ) {
     try {
-      const source = this.resolveReadSource(options?.source ?? options?.simulationSource);
+      const source = this.resolveReadSource(
+        options?.source ?? options?.simulationSource,
+      );
       const tx = await this.buildInvokeTransaction(source, artifact, options);
-      const simulation = await this.rpcServer.simulateTransaction(tx);
+      const simulation = await this.retryPolicy.execute(
+        () => this.rpcServer.simulateTransaction(tx),
+        `simulate ${contract}.${artifact.method}`
+      );
       if (rpc.Api.isSimulationError(simulation)) {
         throw mapSdkError(contract, simulation.error, "Simulation failed.");
       }
@@ -133,7 +144,7 @@ export class SorobanSdkCore {
   async read<TNative>(
     contract: ContractName,
     artifact: ContractCallArtifact,
-    options?: InvokeOptions
+    options?: InvokeOptions,
   ): Promise<TNative> {
     const simulation = await this.simulate(contract, artifact, options);
     const returnValue = simulation.result?.retval;
@@ -146,17 +157,22 @@ export class SorobanSdkCore {
   async prepareWrite(
     contract: ContractName,
     artifact: ContractCallArtifact,
-    options: WriteInvokeOptions
+    options: WriteInvokeOptions,
   ): Promise<PreparedTransaction> {
     try {
       if (!options.source) {
         throw new Error("Write calls require a source account.");
       }
-      const tx = await this.buildInvokeTransaction(options.source, artifact, options);
+      const tx = await this.buildInvokeTransaction(
+        options.source,
+        artifact,
+        options,
+      );
       const simulation = await this.rpcServer.simulateTransaction(tx);
       if (rpc.Api.isSimulationError(simulation)) {
         throw mapSdkError(contract, simulation.error, "Simulation failed.");
       }
+      // Prepared write transactions are assembled from a successful simulation.
       const prepared = rpc.assembleTransaction(tx, simulation).build();
       return {
         xdr: prepared.toXDR(),
@@ -171,7 +187,7 @@ export class SorobanSdkCore {
   async write(
     contract: ContractName,
     artifact: ContractCallArtifact,
-    options: WriteInvokeOptions
+    options: WriteInvokeOptions,
   ): Promise<SorobanSubmitResult> {
     try {
       const prepared = await this.prepareWrite(contract, artifact, options);
@@ -181,11 +197,18 @@ export class SorobanSdkCore {
       });
       const signedTx = TransactionBuilder.fromXDR(
         signedXdr,
-        this.config.networkPassphrase
+        this.config.networkPassphrase,
       );
-      const sent = await this.rpcServer.sendTransaction(signedTx);
+      const sent = await this.retryPolicy.execute(
+        () => this.rpcServer.sendTransaction(signedTx),
+        `sendTransaction ${contract}.${artifact.method}`
+      );
       if (sent.status === "ERROR") {
-        throw new Error(sent.errorResultXdr || "Transaction submission failed.");
+        throw new Error(
+          sent.errorResult
+            ? String(sent.errorResult)
+            : "Transaction submission failed.",
+        );
       }
       const confirmed = await this.waitForTransaction(sent.hash);
       return {
@@ -200,7 +223,10 @@ export class SorobanSdkCore {
 
   async waitForTransaction(hash: string, attempts = 40, delayMs = 1500) {
     for (let attempt = 0; attempt < attempts; attempt += 1) {
-      const transaction = await this.rpcServer.getTransaction(hash);
+      const transaction = await this.retryPolicy.execute(
+        () => this.rpcServer.getTransaction(hash),
+        `getTransaction ${hash}`
+      );
       if (transaction.status === rpc.Api.GetTransactionStatus.SUCCESS) {
         return transaction;
       }

@@ -15,7 +15,7 @@
 #![no_std]
 
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, Address, BytesN, Env, IntoVal, Val, Vec,
+    contract, contracterror, contractimpl, contracttype, Address, Bytes, BytesN, Env, IntoVal, Symbol, Val, Vec,
 };
 
 use upgradeable as upg;
@@ -66,6 +66,11 @@ impl TicketFactory {
 
         // Extend instance TTL
         upg::extend_instance_ttl(&env);
+
+        env.events().publish(
+            (Symbol::new(&env, "factory_init"),),
+            admin,
+        );
     }
 
     /// Deploy a new Ticket NFT contract for an event
@@ -132,6 +137,11 @@ impl TicketFactory {
         // Extend instance TTL on update
         upg::extend_instance_ttl(&env);
 
+        env.events().publish(
+            (Symbol::new(&env, "ticket_deployed"), ticket_id),
+            deployed_address.clone(),
+        );
+
         Ok(deployed_address)
     }
 
@@ -147,6 +157,22 @@ impl TicketFactory {
         env.storage()
             .persistent()
             .get(&DataKey::TicketContract(event_id))
+    }
+
+    /// Verify an Ed25519 signature for off-chain authorization
+    ///
+    /// Facilitates the verification of off-chain signed data, such as
+    /// oracle price feeds or organizer-signed ticket vouchers.
+    ///
+    /// # Arguments
+    /// * `env` - The contract environment
+    /// * `public_key` - The Ed25519 public key of the signer
+    /// * `payload` - The arbitrary message payload that was signed
+    /// * `signature` - The 64-byte Ed25519 signature
+    ///
+    /// Panics if the signature is invalid.
+    pub fn verify_offchain_signature(env: Env, public_key: BytesN<32>, payload: Bytes, signature: BytesN<64>) {
+        env.crypto().ed25519_verify(&public_key, &payload, &signature);
     }
 
     /// Get the total number of ticket contracts deployed
