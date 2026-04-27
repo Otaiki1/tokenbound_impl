@@ -55,6 +55,34 @@ cd soroban-client
 npm run sdk:generate-types
 ```
 
+### Batch ledger-entry fetch
+
+`batchGetLedgerEntries` wraps `rpc.Server.getLedgerEntries` so callers can
+read many keys in one workflow. It chunks over the RPC's per-call key
+limit, runs chunks concurrently, aligns missing entries to `null` at
+their input index, and surfaces per-chunk RPC failures in a structured
+`errors` array instead of bubbling the first one and losing the rest.
+
+```ts
+import { batchGetLedgerEntries } from "@crowdpass/tokenbound-sdk";
+
+const result = await batchGetLedgerEntries(sdk.rpcServer, ledgerKeys);
+
+for (let i = 0; i < ledgerKeys.length; i += 1) {
+  const entry = result.entries[i];
+  if (entry === undefined) {
+    // chunk failed — see result.errors
+  } else if (entry === null) {
+    // key not present on-chain
+  } else {
+    // entry.val is the ledger data
+  }
+}
+
+// {found, missing, failed, latestLedger} are aggregated for monitoring.
+```
+
+`chunkSize`, `concurrency`, and `keyId` are all overridable.
 ### Caching contract schemas at runtime
 
 Soroban contracts in this repo follow the upgradeable pattern, so each
