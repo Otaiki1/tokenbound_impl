@@ -45,6 +45,28 @@ pub struct EventInfo {
     pub organizer: Address,
 }
 
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TicketMintedEvent {
+    pub contract_address: Address,
+    pub token_id: u128,
+    pub recipient: Address,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MetadataUpdatedEvent {
+    pub contract_address: Address,
+    pub token_id: u128,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct OffChainUpdatedEvent {
+    pub contract_address: Address,
+    pub token_id: u128,
+}
+
 #[derive(Clone)]
 #[contracttype]
 pub enum DataKey {
@@ -121,8 +143,13 @@ impl TicketNft {
         Self::extend_persistent_ttl(&env, &DataKey::Metadata(token_id));
         upg::extend_instance_ttl(&env);
 
+        let event = TicketMintedEvent {
+            contract_address: env.current_contract_address(),
+            token_id,
+            recipient: recipient.clone(),
+        };
         env.events()
-            .publish((Symbol::new(&env, "ticket_minted"),), (token_id, recipient));
+            .publish((Symbol::new(&env, "TicketMinted"),), event);
 
         Ok(token_id)
     }
@@ -196,8 +223,12 @@ impl TicketNft {
             .set(&DataKey::Metadata(token_id), &metadata);
         Self::extend_persistent_ttl(&env, &DataKey::Metadata(token_id));
 
+        let event = MetadataUpdatedEvent {
+            contract_address: env.current_contract_address(),
+            token_id,
+        };
         env.events()
-            .publish((Symbol::new(&env, "metadata_updated"),), (token_id,));
+            .publish((Symbol::new(&env, "MetadataUpdated"),), event);
 
         Ok(())
     }
@@ -224,8 +255,12 @@ impl TicketNft {
             .set(&DataKey::OffChain(token_id), &off_chain);
         Self::extend_persistent_ttl(&env, &DataKey::OffChain(token_id));
 
+        let event = OffChainUpdatedEvent {
+            contract_address: env.current_contract_address(),
+            token_id,
+        };
         env.events()
-            .publish((Symbol::new(&env, "offchain_updated"),), (token_id,));
+            .publish((Symbol::new(&env, "OffChainUpdated"),), event);
 
         Ok(())
     }
