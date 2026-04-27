@@ -18,6 +18,7 @@ export interface TokenboundSdkConfig {
   readonly simulationSource?: string | null;
   readonly contracts?: Partial<Record<ContractName, string | null | undefined>>;
   readonly retryConfig?: RetryConfig;
+  readonly middleware?: readonly InvocationMiddleware[];
 }
 
 export interface InvokeOptions {
@@ -140,4 +141,36 @@ export interface ContractCallArtifact {
   readonly contractId: string;
   readonly method: string;
   readonly args: readonly xdr.ScVal[];
+}
+
+export type InvocationStage =
+  | "simulate"
+  | "read"
+  | "prepareWrite"
+  | "write"
+  | "sendTransaction"
+  | "waitForTransaction";
+
+export interface InvocationBeforeContext {
+  readonly stage: InvocationStage;
+  readonly contract: ContractName;
+  readonly method: string;
+  readonly contractId: string;
+  readonly startedAtMs: number;
+  readonly source?: string | null;
+  readonly txHash?: string;
+  readonly metadata?: Readonly<Record<string, unknown>>;
+}
+
+export interface InvocationAfterContext extends InvocationBeforeContext {
+  readonly finishedAtMs: number;
+  readonly durationMs: number;
+  readonly success: boolean;
+  readonly result?: unknown;
+  readonly error?: unknown;
+}
+
+export interface InvocationMiddleware {
+  before?(context: InvocationBeforeContext): Promise<void> | void;
+  after?(context: InvocationAfterContext): Promise<void> | void;
 }
