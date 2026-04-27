@@ -8,6 +8,7 @@ Typed internal SDK for the CrowdPass Soroban contracts.
 - Typed wrappers for Event Manager, Ticket Factory, Ticket NFT, TBA Registry, and TBA Account
 - Shared transaction builders for read, simulate, sign, and submit flows
 - Contract error decoding into SDK-friendly error objects
+- **Typed decoder utilities for safe contract response parsing**
 - **Automatic retry policy with exponential backoff for RPC calls**
 
 ## Usage
@@ -76,6 +77,35 @@ cd soroban-client
 npm run sdk:generate-types
 ```
 
+### Typed Decoders
+
+The SDK provides typed decoder utilities for safely parsing contract responses:
+
+```ts
+import { ContractDecoder, decodeArray, decodeStruct, decodeU32, decodeString, decodeI128 } from "./src";
+
+// Decode event response
+const event = ContractDecoder.event()(rawResponse);
+
+// Decode array of tiers
+const tiers = decodeArray(ContractDecoder.ticketTier())(rawTiers);
+
+// Build custom decoders
+const decodeCustom = decodeStruct({
+  id: decodeU32,
+  name: decodeString,
+  price: decodeI128,
+});
+```
+
+**Key Features:**
+- Type-safe contract response parsing
+- Composable decoders for complex structures
+- Clear error messages with context
+- Built-in Soroban type support (u32, u64, u128, i128, etc.)
+- Pre-built decoders for contract types
+
+See [DECODERS.md](./DECODERS.md) for detailed documentation.
 ### Batch ledger-entry fetch
 
 `batchGetLedgerEntries` wraps `rpc.Server.getLedgerEntries` so callers can
