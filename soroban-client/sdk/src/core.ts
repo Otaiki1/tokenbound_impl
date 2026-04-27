@@ -41,12 +41,15 @@ export function toBytesScVal(value: Bytes32Like): xdr.ScVal {
 
 export function toOptionScVal(
   value: string | number | bigint | undefined,
-  type: "string" | "u64" | "u128" | "i128"
+  type: "string" | "u64" | "u128" | "i128",
 ): xdr.ScVal {
   if (value === undefined) {
     return nativeToScVal(null, { type: "option" });
   }
-  return nativeToScVal({ Some: nativeToScVal(value, { type }) }, { type: "option" });
+  return nativeToScVal(
+    { Some: nativeToScVal(value, { type }) },
+    { type: "option" },
+  );
 }
 
 export class SorobanSdkCore {
@@ -84,7 +87,7 @@ export class SorobanSdkCore {
     const source = explicit ?? this.config.simulationSource;
     if (!source) {
       throw new Error(
-        "A simulation source account is required for read calls. Provide one in the SDK config or per call."
+        "A simulation source account is required for read calls. Provide one in the SDK config or per call.",
       );
     }
     return source;
@@ -93,7 +96,7 @@ export class SorobanSdkCore {
   async buildInvokeTransaction(
     source: string,
     artifact: ContractCallArtifact,
-    options?: InvokeOptions
+    options?: InvokeOptions,
   ) {
     const account = await this.horizonServer.loadAccount(source);
     const fee = options?.fee ?? Number(await this.horizonServer.fetchBaseFee());
@@ -115,10 +118,12 @@ export class SorobanSdkCore {
   async simulate(
     contract: ContractName,
     artifact: ContractCallArtifact,
-    options?: InvokeOptions
+    options?: InvokeOptions,
   ) {
     try {
-      const source = this.resolveReadSource(options?.source ?? options?.simulationSource);
+      const source = this.resolveReadSource(
+        options?.source ?? options?.simulationSource,
+      );
       const tx = await this.buildInvokeTransaction(source, artifact, options);
       const simulation = await this.rpcServer.simulateTransaction(tx);
       if (rpc.Api.isSimulationError(simulation)) {
@@ -133,7 +138,7 @@ export class SorobanSdkCore {
   async read<TNative>(
     contract: ContractName,
     artifact: ContractCallArtifact,
-    options?: InvokeOptions
+    options?: InvokeOptions,
   ): Promise<TNative> {
     const simulation = await this.simulate(contract, artifact, options);
     const returnValue = simulation.result?.retval;
@@ -146,17 +151,22 @@ export class SorobanSdkCore {
   async prepareWrite(
     contract: ContractName,
     artifact: ContractCallArtifact,
-    options: WriteInvokeOptions
+    options: WriteInvokeOptions,
   ): Promise<PreparedTransaction> {
     try {
       if (!options.source) {
         throw new Error("Write calls require a source account.");
       }
-      const tx = await this.buildInvokeTransaction(options.source, artifact, options);
+      const tx = await this.buildInvokeTransaction(
+        options.source,
+        artifact,
+        options,
+      );
       const simulation = await this.rpcServer.simulateTransaction(tx);
       if (rpc.Api.isSimulationError(simulation)) {
         throw mapSdkError(contract, simulation.error, "Simulation failed.");
       }
+      // Prepared write transactions are assembled from a successful simulation.
       const prepared = rpc.assembleTransaction(tx, simulation).build();
       return {
         xdr: prepared.toXDR(),
@@ -171,7 +181,7 @@ export class SorobanSdkCore {
   async write(
     contract: ContractName,
     artifact: ContractCallArtifact,
-    options: WriteInvokeOptions
+    options: WriteInvokeOptions,
   ): Promise<SorobanSubmitResult> {
     try {
       const prepared = await this.prepareWrite(contract, artifact, options);
@@ -181,11 +191,13 @@ export class SorobanSdkCore {
       });
       const signedTx = TransactionBuilder.fromXDR(
         signedXdr,
-        this.config.networkPassphrase
+        this.config.networkPassphrase,
       );
       const sent = await this.rpcServer.sendTransaction(signedTx);
       if (sent.status === "ERROR") {
-        throw new Error(sent.errorResultXdr || "Transaction submission failed.");
+        throw new Error(
+          sent.errorResultXdr || "Transaction submission failed.",
+        );
       }
       const confirmed = await this.waitForTransaction(sent.hash);
       return {

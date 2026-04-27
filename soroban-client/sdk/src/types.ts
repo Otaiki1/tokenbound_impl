@@ -35,6 +35,7 @@ export interface PreparedTransaction {
   readonly source: string;
 }
 
+// Submission results represent the on-chain transaction outcome after send + confirmation.
 export interface SorobanSubmitResult {
   readonly hash: string;
   readonly ledger: number;
@@ -43,7 +44,7 @@ export interface SorobanSubmitResult {
 
 export type SignTransactionFn = (
   txXdr: string,
-  options: { networkPassphrase: string; address: string }
+  options: { networkPassphrase: string; address: string },
 ) => Promise<string>;
 
 export interface TicketTier {
@@ -91,7 +92,10 @@ export interface CreateEventInput {
   readonly tiers?: readonly TierConfig[];
 }
 
-export interface CreateEventLegacyInput extends Omit<CreateEventInput, "tiers"> {}
+export interface CreateEventLegacyInput extends Omit<
+  CreateEventInput,
+  "tiers"
+> {}
 
 export interface UpdateEventInput {
   readonly organizer: string;
