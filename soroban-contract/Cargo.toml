@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
+  "contracts/nonce_manager",
   "contracts/upgradeable",
   "contracts/tba_account",
   "contracts/tba_registry",
