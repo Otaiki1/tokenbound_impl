@@ -1,13 +1,22 @@
 [workspace]
 resolver = "2"
 members = [
+  "contracts/nonce_manager",
   "contracts/upgradeable",
+  "contracts/collections",
+  "contracts/upgradeable_reference",
   "contracts/tba_account",
   "contracts/tba_registry",
   "contracts/ticket_nft",
+  "contracts/poap_nft",
   "contracts/ticket_factory",
   "contracts/event_manager",
   "contracts/marketplace",
+  "contracts/vesting",
+  "contracts/fuzz_helpers",
+  "contracts/dao_governance",
+  "contracts/merkle_distributor",
+  "contracts/payment_splitter",
   "tests/integration",
 ]
 exclude = ["contracts/hello-world"]

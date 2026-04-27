@@ -96,7 +96,9 @@ export const GENERATED_CONTRACT_SPECS = {
       { name: "transfer_from", args: [{ name: "from", type: "Address" }, { name: "to", type: "Address" }, { name: "token_id", type: "u128" }], returns: "()", mutates: true },
       { name: "burn", args: [{ name: "token_id", type: "u128" }], returns: "()", mutates: true },
       { name: "is_valid", args: [{ name: "token_id", type: "u128" }], returns: "bool", mutates: false },
-      { name: "get_minter", args: [], returns: "Address", mutates: false }
+      { name: "get_minter", args: [], returns: "Address", mutates: false },
+      { name: "name", args: [], returns: "String", mutates: false },
+      { name: "symbol", args: [], returns: "String", mutates: false }
     ],
     errors: [
       { name: "UserAlreadyHasTicket", code: 1 },
