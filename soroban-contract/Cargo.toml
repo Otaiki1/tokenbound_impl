@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
+  "contracts/nonce_manager",
   "contracts/upgradeable",
   "contracts/collections",
   "contracts/upgradeable_reference",
@@ -14,12 +15,14 @@ members = [
   "contracts/vesting",
   "contracts/fuzz_helpers",
   "contracts/dao_governance",
+  "contracts/merkle_distributor",
+  "contracts/payment_splitter",
   "tests/integration",
 ]
 exclude = ["contracts/hello-world"]
 
 [workspace.dependencies]
-soroban-sdk = "22.0.0"
+soroban-sdk = "25.0.0"
 proptest = "1.5.0"
 
 [profile.release]

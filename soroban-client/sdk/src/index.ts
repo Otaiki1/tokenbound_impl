@@ -12,10 +12,16 @@ import type { TokenboundSdkConfig } from "./types";
 export * from "./batchLedgerEntries";
 export * from "./contracts";
 export * from "./core";
+export * from "./decoders";
 export * from "./errors";
 export * from "./generated/contracts";
 export * from "./schemaCache";
 export * from "./types";
+export * from "./tracer";
+export * from "./typedClient";
+export * from "./validation";
+export * from "./runtime/typeGuards";
+export * from "./builder/contractCallBuilder";
 
 export class TokenboundSdk extends SorobanSdkCore {
   readonly eventManager: EventManagerContract;
