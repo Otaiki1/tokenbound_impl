@@ -6,6 +6,11 @@
  */
 
 import { env } from "@/lib/env";
+import {
+  CHECKPOINT_SCHEMA_VERSION,
+  type CheckpointStore,
+  createDefaultCheckpointStore,
+} from "@/lib/checkpoint";
 
 export type ContractEventType =
   | "EventCreated"
@@ -48,6 +53,73 @@ const cache: Cache = {
 };
 
 const CACHE_TTL_MS = 15_000; // re-poll every 15 s
+
+// ── Checkpoint state ─────────────────────────────────────────────────────────
+
+let checkpointStore: CheckpointStore = createDefaultCheckpointStore();
+let hydrationPromise: Promise<void> | null = null;
+let hydrated = false;
+
+/**
+ * Override the checkpoint store. Intended for tests; production callers should
+ * rely on the default store wired to the configured path.
+ */
+export function setCheckpointStore(store: CheckpointStore): void {
+  checkpointStore = store;
+  hydrationPromise = null;
+  hydrated = false;
+}
+
+async function hydrateFromCheckpoint(): Promise<void> {
+  if (hydrated) return;
+  if (!hydrationPromise) {
+    hydrationPromise = (async () => {
+      try {
+        const saved = await checkpointStore.load();
+        if (saved && cache.events.length === 0 && cache.lastLedger === 0) {
+          cache.events = saved.events;
+          cache.lastLedger = saved.lastLedger;
+          // Treat a fresh hydration as stale so the first call still polls
+          // for events that may have arrived during downtime.
+          cache.updatedAt = 0;
+        }
+      } catch (err) {
+        console.warn("[indexer] failed to load checkpoint:", err);
+      } finally {
+        hydrated = true;
+      }
+    })();
+  }
+  return hydrationPromise;
+}
+
+async function persistCheckpoint(): Promise<void> {
+  try {
+    await checkpointStore.save({
+      version: CHECKPOINT_SCHEMA_VERSION,
+      lastLedger: cache.lastLedger,
+      events: cache.events,
+      updatedAt: cache.updatedAt,
+    });
+  } catch (err) {
+    // Persistence failures must not break the consumer — at worst we replay
+    // events on the next restart.
+    console.warn("[indexer] failed to save checkpoint:", err);
+  }
+}
+
+/**
+ * Reset the in-memory cache and clear the persisted checkpoint. Intended for
+ * tests and admin-triggered re-indexing.
+ */
+export async function resetIndexer(): Promise<void> {
+  cache.events = [];
+  cache.lastLedger = 0;
+  cache.updatedAt = 0;
+  hydrated = false;
+  hydrationPromise = null;
+  await checkpointStore.reset();
+}
 
 // ── Horizon response shapes (minimal) ────────────────────────────────────────
 
@@ -224,11 +296,18 @@ async function pollHorizon(): Promise<void> {
   }
 
   cache.updatedAt = Date.now();
+
+  // Skip writes when no new events arrived — the persisted cursor is already
+  // current and disk churn on quiet contracts adds no value.
+  if (newEvents.length > 0) {
+    await persistCheckpoint();
+  }
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
 export async function getIndexedEvents(): Promise<IndexedEvent[]> {
+  await hydrateFromCheckpoint();
   if (Date.now() - cache.updatedAt > CACHE_TTL_MS) {
     await pollHorizon();
   }
@@ -276,5 +355,6 @@ export function getCacheStats() {
     lastLedger: cache.lastLedger,
     updatedAt: cache.updatedAt,
     ttlMs: CACHE_TTL_MS,
+    hydratedFromCheckpoint: hydrated,
   };
 }
