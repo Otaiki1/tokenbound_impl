@@ -36,3 +36,4 @@ export class TokenboundSdk extends SorobanSdkCore {
 export function createTokenboundSdk(config: TokenboundSdkConfig) {
   return new TokenboundSdk(config);
 }
+export * from "./offline-builder";
