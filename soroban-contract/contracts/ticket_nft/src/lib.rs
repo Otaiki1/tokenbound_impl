@@ -8,6 +8,14 @@ use soroban_sdk::{
 
 use upgradeable as upg;
 
+/// Token name returned by [`TicketNft::name`]. Static contract-level
+/// metadata; per-ticket names live in [`TicketMetadata::name`].
+pub const TOKEN_NAME: &str = "CrowdPass Ticket";
+
+/// Token symbol returned by [`TicketNft::symbol`]. Mirrors the ERC-20
+/// `symbol()` getter expected by interoperability tooling.
+pub const TOKEN_SYMBOL: &str = "TICKET";
+
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 #[repr(u32)]
@@ -363,6 +371,18 @@ impl TicketNft {
 
     pub fn is_valid(env: Env, token_id: u128) -> bool {
         env.storage().persistent().has(&DataKey::Owner(token_id))
+    }
+
+    /// ERC-20 / SEP-41 compatible token name. Returned value is constant
+    /// across the contract lifetime — per-ticket names live in
+    /// [`TicketMetadata::name`].
+    pub fn name(env: Env) -> String {
+        String::from_str(&env, TOKEN_NAME)
+    }
+
+    /// ERC-20 / SEP-41 compatible token symbol.
+    pub fn symbol(env: Env) -> String {
+        String::from_str(&env, TOKEN_SYMBOL)
     }
 
     pub fn get_minter(env: Env) -> Result<Address, Error> {
