@@ -8,6 +8,7 @@ members = [
   "contracts/ticket_factory",
   "contracts/event_manager",
   "contracts/marketplace",
+  "contracts/fuzz_helpers",
   "contracts/dao_governance",
   "tests/integration",
 ]
