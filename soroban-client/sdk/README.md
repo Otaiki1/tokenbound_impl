@@ -8,6 +8,7 @@ Typed internal SDK for the CrowdPass Soroban contracts.
 - Typed wrappers for Event Manager, Ticket Factory, Ticket NFT, TBA Registry, and TBA Account
 - Shared transaction builders for read, simulate, sign, and submit flows
 - Contract error decoding into SDK-friendly error objects
+- **Automatic retry policy with exponential backoff for RPC calls**
 
 ## Usage
 
@@ -21,6 +22,14 @@ const sdk = createTokenboundSdk({
   simulationSource: process.env.NEXT_PUBLIC_SOROBAN_SIM_SOURCE,
   contracts: {
     eventManager: process.env.NEXT_PUBLIC_EVENT_MANAGER_CONTRACT,
+  },
+  // Optional: Configure retry policy for RPC calls
+  retryConfig: {
+    maxRetries: 3,
+    initialDelayMs: 1000,
+    maxDelayMs: 30000,
+    backoffMultiplier: 2,
+    enableJitter: true,
   },
 });
 
@@ -47,6 +56,18 @@ const result = await sdk.eventManager.createEvent(
   }
 );
 ```
+
+### Retry Policy
+
+The SDK automatically retries failed RPC calls with exponential backoff and jitter. This handles transient network failures, rate limiting, and temporary service unavailability.
+
+**Key Features:**
+- Automatic retries for transient errors (network issues, timeouts, 5xx errors)
+- Exponential backoff with configurable parameters
+- Jitter to prevent thundering herd problems
+- Smart error detection (only retries appropriate errors)
+
+See [RETRY_POLICY.md](./RETRY_POLICY.md) for detailed documentation.
 
 ### Regenerating contract metadata
 

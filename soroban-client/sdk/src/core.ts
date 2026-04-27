@@ -9,6 +9,7 @@ import {
 import { nativeToScVal, scValToNative } from "@stellar/stellar-base";
 
 import { mapSdkError } from "./errors";
+import { RetryPolicy } from "./retry";
 import type {
   Bytes32Like,
   ContractCallArtifact,
@@ -56,11 +57,13 @@ export class SorobanSdkCore {
   readonly config: TokenboundSdkConfig;
   readonly horizonServer: Horizon.Server;
   readonly rpcServer: rpc.Server;
+  readonly retryPolicy: RetryPolicy;
 
   constructor(config: TokenboundSdkConfig) {
     this.config = config;
     this.horizonServer = new Horizon.Server(config.horizonUrl);
     this.rpcServer = new rpc.Server(config.sorobanRpcUrl);
+    this.retryPolicy = new RetryPolicy(config.retryConfig);
   }
 
   getContractId(contract: ContractName): string {
@@ -125,7 +128,10 @@ export class SorobanSdkCore {
         options?.source ?? options?.simulationSource,
       );
       const tx = await this.buildInvokeTransaction(source, artifact, options);
-      const simulation = await this.rpcServer.simulateTransaction(tx);
+      const simulation = await this.retryPolicy.execute(
+        () => this.rpcServer.simulateTransaction(tx),
+        `simulate ${contract}.${artifact.method}`
+      );
       if (rpc.Api.isSimulationError(simulation)) {
         throw mapSdkError(contract, simulation.error, "Simulation failed.");
       }
@@ -193,7 +199,10 @@ export class SorobanSdkCore {
         signedXdr,
         this.config.networkPassphrase,
       );
-      const sent = await this.rpcServer.sendTransaction(signedTx);
+      const sent = await this.retryPolicy.execute(
+        () => this.rpcServer.sendTransaction(signedTx),
+        `sendTransaction ${contract}.${artifact.method}`
+      );
       if (sent.status === "ERROR") {
         throw new Error(
           sent.errorResult
@@ -214,7 +223,10 @@ export class SorobanSdkCore {
 
   async waitForTransaction(hash: string, attempts = 40, delayMs = 1500) {
     for (let attempt = 0; attempt < attempts; attempt += 1) {
-      const transaction = await this.rpcServer.getTransaction(hash);
+      const transaction = await this.retryPolicy.execute(
+        () => this.rpcServer.getTransaction(hash),
+        `getTransaction ${hash}`
+      );
       if (transaction.status === rpc.Api.GetTransactionStatus.SUCCESS) {
         return transaction;
       }
