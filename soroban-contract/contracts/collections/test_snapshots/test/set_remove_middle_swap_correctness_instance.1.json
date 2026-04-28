@@ -44,6 +44,21 @@
                         "key": {
                           "vec": [
                             {
+                              "symbol": "Count"
+                            },
+                            {
+                              "symbol": "rmid"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "u32": 4
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
                               "symbol": "Index"
                             },
                             {

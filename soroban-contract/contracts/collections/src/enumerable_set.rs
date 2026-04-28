@@ -36,6 +36,8 @@ use soroban_sdk::Env;
 pub enum SetKey {
     /// The ordered `Vec<V>` of set members.
     Values(Symbol),
+    /// Cached number of elements in the set.
+    Count(Symbol),
     /// 1-based index of a member.  The second field is the member's raw `Val`
     /// payload encoded as a `u64`, avoiding XDR limitations on `Val` fields.
     Index(Symbol, u64),
@@ -84,6 +86,7 @@ impl EnumerableSet {
         let one_based_index = vec.len(); // length after push == 1-based index of new element
 
         tier.set(env, &values_key, &vec);
+        tier.set(env, &SetKey::Count(ns.clone()), &one_based_index);
         tier.set(env, &index_key, &one_based_index);
 
         true
@@ -124,6 +127,7 @@ impl EnumerableSet {
 
         vec.pop_back(); // remove last (was either target or swapped copy)
         tier.set(env, &values_key, &vec);
+        tier.set(env, &SetKey::Count(ns.clone()), &vec.len());
         tier.remove(env, &index_key);
 
         true
@@ -145,10 +149,7 @@ impl EnumerableSet {
     where
         V: IntoVal<Env, Val> + TryFromVal<Env, Val>,
     {
-        let vec: Vec<V> = tier
-            .get(env, &SetKey::Values(ns.clone()))
-            .unwrap_or_else(|| Vec::new(env));
-        vec.len()
+        tier.get(env, &SetKey::Count(ns.clone())).unwrap_or(0)
     }
 
     /// Returns all members as an ordered `Vec<V>`.

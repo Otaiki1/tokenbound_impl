@@ -1,6 +1,9 @@
 {
   "name": "tokenbound-impl",
   "private": true,
+  "bin": {
+    "tokenbound": "scripts/tokenbound-cli.mjs"
+  },
   "scripts": {
     "prepare": "husky",
     "precommit": "lint-staged && npm run precommit:rust",
@@ -11,7 +14,11 @@
     "format:check": "npm run format:check:js && npm run format:check:rust",
     "format:check:js": "prettier --check .",
     "format:check:rust": "cargo fmt --manifest-path soroban-contract/Cargo.toml --all --check",
-    "test": "npm run test --prefix soroban-client && cargo test --manifest-path soroban-contract/Cargo.toml --all-targets --all-features"
+    "test": "npm run test --prefix soroban-client && cargo test --manifest-path soroban-contract/Cargo.toml --all-targets --all-features",
+    "tokenbound": "node scripts/tokenbound-cli.mjs"
+  },
+  "dependencies": {
+    "commander": "^14.0.1"
   },
   "devDependencies": {
     "husky": "^9.1.7",
