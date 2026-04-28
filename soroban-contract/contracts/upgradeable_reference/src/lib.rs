@@ -46,8 +46,11 @@ impl UpgradeableReference {
         upg::set_admin(&env, &admin);
         upg::init_version(&env);
 
-        env.storage().persistent().set(&DataKey::Counter, &0u32);
-        upg::extend_persistent_ttl(&env, &DataKey::Counter);
+        // STORAGE: the counter is per-contract singleton state — exactly the
+        // shape `instance` storage was designed for. It rides the contract
+        // instance entry's TTL (already bumped via `extend_instance_ttl`),
+        // so no separate persistent entry or extension call is needed.
+        env.storage().instance().set(&DataKey::Counter, &0u32);
         upg::extend_instance_ttl(&env);
     }
 
@@ -59,20 +62,23 @@ impl UpgradeableReference {
         upg::require_not_paused(&env);
         caller.require_auth();
 
+        // STORAGE: read + write against the same instance entry. Single
+        // `extend_instance_ttl` at the end covers the whole instance,
+        // including the Counter slot.
         let current: u32 = env
             .storage()
-            .persistent()
+            .instance()
             .get(&DataKey::Counter)
             .unwrap_or(0);
         let next = current.checked_add(1).expect("counter overflow");
-        env.storage().persistent().set(&DataKey::Counter, &next);
-        upg::extend_persistent_ttl(&env, &DataKey::Counter);
+        env.storage().instance().set(&DataKey::Counter, &next);
+        upg::extend_instance_ttl(&env);
         next
     }
 
     pub fn get(env: Env) -> u32 {
         env.storage()
-            .persistent()
+            .instance()
             .get(&DataKey::Counter)
             .unwrap_or(0)
     }

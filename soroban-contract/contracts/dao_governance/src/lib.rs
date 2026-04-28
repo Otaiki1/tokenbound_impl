@@ -98,6 +98,9 @@ pub struct DaoConfig {
     pub max_members: u32,
 }
 
+// STORAGE: removed the redundant `Votes(Address, u32)` per-voter entry —
+// it duplicated data already stored in `ProposalVotes(proposal_id)` (a Map
+// keyed by voter). One write per vote saved, scaling with participation.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum DataKey {
@@ -107,7 +110,6 @@ pub enum DataKey {
     Member(Address),
     AllMembers,
     ProposalCount,
-    Votes(Address, u32), // (voter, proposal_id)
 }
 
 #[contract]
@@ -323,20 +325,28 @@ impl DaoGovernance {
             return Err(DaoError::ProposalNotActive);
         }
 
-        // Check if already voted
-        if env.storage().persistent().has(&DataKey::Votes(voter.clone(), proposal_id)) {
+        // STORAGE: read the per-proposal vote map once, use it both for the
+        // "already voted?" guard AND to record the new vote. Previously each
+        // vote also wrote a redundant `Votes(voter, proposal_id)` entry that
+        // duplicated data already stored in `ProposalVotes(proposal_id)` —
+        // pure rent overhead per voter, scaling with proposal participation.
+        let config = Self::get_config(&env);
+        let mut votes: Map<Address, Vote> = env
+            .storage()
+            .persistent()
+            .get(&DataKey::ProposalVotes(proposal_id))
+            .unwrap_or(Map::new(&env));
+
+        if votes.contains_key(voter.clone()) {
             return Err(DaoError::AlreadyVoted);
         }
 
-        // Get voting power
-        let config = Self::get_config(&env);
         let voting_power = Self::get_voting_power(&env, &voter, &config.voting_token);
 
         if voting_power == 0 {
             return Err(DaoError::InsufficientVotingPower);
         }
 
-        // Record vote
         let vote = Vote {
             voter: voter.clone(),
             proposal_id,
@@ -344,15 +354,6 @@ impl DaoGovernance {
             voting_power,
             timestamp: current_time,
         };
-
-        env.storage().persistent().set(&DataKey::Votes(voter.clone(), proposal_id), &vote);
-
-        // Update proposal votes
-        let mut votes: Map<Address, Vote> = env
-            .storage()
-            .persistent()
-            .get(&DataKey::ProposalVotes(proposal_id))
-            .unwrap_or(Map::new(&env));
 
         votes.set(voter.clone(), vote);
         env.storage().persistent().set(&DataKey::ProposalVotes(proposal_id), &votes);
