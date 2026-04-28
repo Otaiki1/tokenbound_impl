@@ -7,10 +7,7 @@ import {
 } from "@stellar/stellar-sdk";
 import { nativeToScVal } from "@stellar/stellar-base";
 
-import type {
-  ContractCallArtifact,
-  PreparedTransaction,
-} from "./types";
+import type { ContractCallArtifact, PreparedTransaction } from "./types";
 
 const DEFAULT_FEE = 100;
 const DEFAULT_TIMEOUT = 30;
@@ -43,7 +40,7 @@ export function buildOfflineTransaction(
   account: OfflineAccountStub,
   artifact: ContractCallArtifact,
   networkPassphrase: string,
-  options: OfflineBuildOptions = {}
+  options: OfflineBuildOptions = {},
 ): PreparedTransaction {
   // Account from stellar-sdk validates and manages sequence correctly
   const sdkAccount = new Account(account.accountId, account.sequenceNumber);
@@ -75,7 +72,7 @@ export function buildOfflineTransaction(
  */
 export function serializeTransaction(
   prepared: PreparedTransaction,
-  sequenceNumber: string
+  sequenceNumber: string,
 ): SerializedTransaction {
   return {
     xdr: prepared.xdr,
@@ -90,7 +87,7 @@ export function serializeTransaction(
  * so it can be signed and submitted.
  */
 export function deserializeTransaction(
-  serialized: SerializedTransaction
+  serialized: SerializedTransaction,
 ): PreparedTransaction {
   // Validate the XDR is parseable before returning
   TransactionBuilder.fromXDR(serialized.xdr, serialized.networkPassphrase);
@@ -106,11 +103,11 @@ export function deserializeTransaction(
  * Useful for inspecting or re-encoding before signing.
  */
 export function decodeTransactionXdr(
-  prepared: PreparedTransaction
+  prepared: PreparedTransaction,
 ): Transaction {
   return TransactionBuilder.fromXDR(
     prepared.xdr,
-    prepared.networkPassphrase
+    prepared.networkPassphrase,
   ) as Transaction;
 }
 
@@ -154,7 +151,7 @@ export function inspectTransaction(prepared: PreparedTransaction): {
 export function buildContractArtifact(
   contractId: string,
   method: string,
-  args: ReturnType<typeof nativeToScVal>[]
+  args: ReturnType<typeof nativeToScVal>[],
 ): ContractCallArtifact {
   return { contractId, method, args };
 }
@@ -179,16 +176,21 @@ export class OfflineTransactionBuilder {
   build(
     account: OfflineAccountStub,
     artifact: ContractCallArtifact,
-    options: OfflineBuildOptions = {}
+    options: OfflineBuildOptions = {},
   ): PreparedTransaction {
-    return buildOfflineTransaction(account, artifact, this.networkPassphrase, options);
+    return buildOfflineTransaction(
+      account,
+      artifact,
+      this.networkPassphrase,
+      options,
+    );
   }
 
   /** Builds and immediately serializes for transport/storage. */
   buildAndSerialize(
     account: OfflineAccountStub,
     artifact: ContractCallArtifact,
-    options: OfflineBuildOptions = {}
+    options: OfflineBuildOptions = {},
   ): SerializedTransaction {
     const prepared = this.build(account, artifact, options);
     return serializeTransaction(prepared, account.sequenceNumber);

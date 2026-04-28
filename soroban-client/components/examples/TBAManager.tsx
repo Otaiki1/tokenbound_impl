@@ -1,10 +1,15 @@
 "use client";
 
-import { useState } from 'react';
-import { useSoroban } from '@/contexts/SorobanContext';
-import { useGetTBAAccount, useCreateTBAAccount, useTBAOwner, useTBANonce } from '@/hooks/useTBA';
-import { useWallet } from '@/contexts/WalletContext';
-import type { CreateAccountInput } from '../../sdk/src/types';
+import { useState } from "react";
+import { useSoroban } from "@/contexts/SorobanContext";
+import {
+  useGetTBAAccount,
+  useCreateTBAAccount,
+  useTBAOwner,
+  useTBANonce,
+} from "@/hooks/useTBA";
+import { useWallet } from "@/contexts/WalletContext";
+import type { CreateAccountInput } from "../../sdk/src/types";
 
 interface TBAManagerProps {
   tokenContract: string;
@@ -14,20 +19,20 @@ interface TBAManagerProps {
 export function TBAManager({ tokenContract, tokenId }: TBAManagerProps) {
   const { sdk } = useSoroban();
   const { signTransaction } = useWallet();
-  const [implementationHash, setImplementationHash] = useState('');
-  const [salt, setSalt] = useState('');
+  const [implementationHash, setImplementationHash] = useState("");
+  const [salt, setSalt] = useState("");
 
   const accountInput: CreateAccountInput = {
-    implementationHash: implementationHash || '0'.repeat(64),
+    implementationHash: implementationHash || "0".repeat(64),
     tokenContract,
     tokenId,
-    salt: salt || '0'.repeat(64),
+    salt: salt || "0".repeat(64),
   };
 
   const { data: accountAddress, loading: addressLoading } = useGetTBAAccount(
     sdk,
     accountInput,
-    { enabled: !!implementationHash && !!salt }
+    { enabled: !!implementationHash && !!salt },
   );
 
   const { data: owner, loading: ownerLoading } = useTBAOwner(sdk, {
@@ -38,17 +43,18 @@ export function TBAManager({ tokenContract, tokenId }: TBAManagerProps) {
     enabled: !!accountAddress,
   });
 
-  const { write: createAccount, loading: creating, error, isSuccess } = useCreateTBAAccount(
-    sdk,
-    accountInput,
-    {
-      signTransaction: signTransaction || (async (xdr) => xdr),
-    }
-  );
+  const {
+    write: createAccount,
+    loading: creating,
+    error,
+    isSuccess,
+  } = useCreateTBAAccount(sdk, accountInput, {
+    signTransaction: signTransaction || (async (xdr) => xdr),
+  });
 
   const handleCreate = async () => {
     if (!implementationHash || !salt) {
-      alert('Please provide implementation hash and salt');
+      alert("Please provide implementation hash and salt");
       return;
     }
     await createAccount();
@@ -118,7 +124,7 @@ export function TBAManager({ tokenContract, tokenId }: TBAManagerProps) {
           disabled={creating || !implementationHash || !salt}
           className="w-full px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
         >
-          {creating ? 'Creating...' : 'Create TBA Account'}
+          {creating ? "Creating..." : "Create TBA Account"}
         </button>
       </div>
 

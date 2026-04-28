@@ -20,7 +20,7 @@ export type ContractEventType =
   | "EventUpdated";
 
 export interface IndexedEvent {
-  id: string;           // "<ledger>-<txIndex>-<opIndex>-<eventIndex>"
+  id: string; // "<ledger>-<txIndex>-<opIndex>-<eventIndex>"
   type: ContractEventType;
   ledger: number;
   ledgerClosedAt: string; // ISO timestamp
@@ -192,7 +192,9 @@ function decodeI128(b64: string): string {
 function decodeEvent(raw: HorizonContractEvent): IndexedEvent | null {
   if (!raw.topic || raw.topic.length === 0) return null;
 
-  const eventType = decodeSymbol(raw.topic[0]?.value ?? "") as ContractEventType;
+  const eventType = decodeSymbol(
+    raw.topic[0]?.value ?? "",
+  ) as ContractEventType;
   const knownTypes: ContractEventType[] = [
     "EventCreated",
     "TicketPurchased",
@@ -243,7 +245,8 @@ function decodeEvent(raw: HorizonContractEvent): IndexedEvent | null {
 
 async function fetchPage(url: string): Promise<HorizonEventsResponse> {
   const res = await fetch(url, { next: { revalidate: 0 } });
-  if (!res.ok) throw new Error(`Horizon error ${res.status}: ${await res.text()}`);
+  if (!res.ok)
+    throw new Error(`Horizon error ${res.status}: ${await res.text()}`);
   return res.json() as Promise<HorizonEventsResponse>;
 }
 
@@ -268,7 +271,8 @@ async function pollHorizon(): Promise<void> {
       const decoded = decodeEvent(raw);
       if (decoded) {
         newEvents.push(decoded);
-        if (decoded.ledger > cache.lastLedger) cache.lastLedger = decoded.ledger;
+        if (decoded.ledger > cache.lastLedger)
+          cache.lastLedger = decoded.ledger;
       }
     }
     url = page._links.next?.href;
@@ -286,7 +290,9 @@ async function pollHorizon(): Promise<void> {
     }
     // Apply cancellation status retroactively
     const canceledIds = new Set(
-      cache.events.filter((e) => e.type === "EventCanceled").map((e) => e.eventId)
+      cache.events
+        .filter((e) => e.type === "EventCanceled")
+        .map((e) => e.eventId),
     );
     for (const ev of cache.events) {
       if (ev.eventId !== undefined && canceledIds.has(ev.eventId)) {
@@ -317,8 +323,8 @@ export async function getIndexedEvents(): Promise<IndexedEvent[]> {
 export interface EventQueryParams {
   organizer?: string;
   status?: "active" | "canceled" | "completed";
-  from?: number;   // unix timestamp
-  to?: number;     // unix timestamp
+  from?: number; // unix timestamp
+  to?: number; // unix timestamp
   type?: ContractEventType;
   limit?: number;
   offset?: number;
@@ -379,11 +385,11 @@ export function getEventsAfterCursor(cursor: string): IndexedEvent[] {
   }
 
   // Parse the cursor to extract the ledger number
-  const cursorLedger = parseInt(cursor.split('-')[0], 10);
+  const cursorLedger = parseInt(cursor.split("-")[0], 10);
   if (isNaN(cursorLedger)) {
     return cache.events;
   }
 
   // Return events that occurred after the cursor ledger
-  return cache.events.filter(event => event.ledger > cursorLedger);
+  return cache.events.filter((event) => event.ledger > cursorLedger);
 }

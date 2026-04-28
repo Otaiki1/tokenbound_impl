@@ -1,24 +1,24 @@
 "use client";
 
-import { useEffect } from 'react';
-import { useSoroban } from '@/contexts/SorobanContext';
-import { useGetAllEvents, useGetEventCount } from '@/hooks/useEventManager';
-import { useEventStore } from '@/lib/stores/eventStore';
+import { useEffect } from "react";
+import { useSoroban } from "@/contexts/SorobanContext";
+import { useGetAllEvents, useGetEventCount } from "@/hooks/useEventManager";
+import { useEventStore } from "@/lib/stores/eventStore";
 
 export function EventDashboard() {
   const { sdk } = useSoroban();
-  const { 
-    events: storeEvents, 
-    setEvents, 
-    setLoading, 
+  const {
+    events: storeEvents,
+    setEvents,
+    setLoading,
     setError,
     loading: storeLoading,
     error: storeError,
   } = useEventStore();
 
-  const { 
-    data: contractEvents, 
-    loading: contractLoading, 
+  const {
+    data: contractEvents,
+    loading: contractLoading,
     error: contractError,
     refetch,
   } = useGetAllEvents(sdk, {
@@ -46,11 +46,11 @@ export function EventDashboard() {
     }
   }, [contractEvents, setEvents]);
 
-  const activeEvents = storeEvents.filter(e => !e.isCanceled);
-  const canceledEvents = storeEvents.filter(e => e.isCanceled);
+  const activeEvents = storeEvents.filter((e) => !e.isCanceled);
+  const canceledEvents = storeEvents.filter((e) => e.isCanceled);
   const totalTicketsSold = storeEvents.reduce(
     (sum, e) => sum + Number(e.ticketsSold),
-    0
+    0,
   );
 
   return (
@@ -73,17 +73,23 @@ export function EventDashboard() {
 
         <div className="bg-white border rounded-lg p-6">
           <div className="text-sm text-gray-600 mb-1">Active Events</div>
-          <div className="text-3xl font-bold text-green-600">{activeEvents.length}</div>
+          <div className="text-3xl font-bold text-green-600">
+            {activeEvents.length}
+          </div>
         </div>
 
         <div className="bg-white border rounded-lg p-6">
           <div className="text-sm text-gray-600 mb-1">Canceled Events</div>
-          <div className="text-3xl font-bold text-red-600">{canceledEvents.length}</div>
+          <div className="text-3xl font-bold text-red-600">
+            {canceledEvents.length}
+          </div>
         </div>
 
         <div className="bg-white border rounded-lg p-6">
           <div className="text-sm text-gray-600 mb-1">Total Tickets Sold</div>
-          <div className="text-3xl font-bold text-blue-600">{totalTicketsSold}</div>
+          <div className="text-3xl font-bold text-blue-600">
+            {totalTicketsSold}
+          </div>
         </div>
       </div>
 
@@ -132,7 +138,9 @@ export function EventDashboard() {
 
 function EventCard({ event }: { event: any }) {
   const { selectEvent } = useEventStore();
-  const soldPercentage = Number((event.ticketsSold * 100n) / event.totalTickets);
+  const soldPercentage = Number(
+    (event.ticketsSold * 100n) / event.totalTickets,
+  );
 
   return (
     <div

@@ -1,12 +1,12 @@
-import { create } from 'zustand';
-import type { EventRecord } from '../sdk/src/types';
+import { create } from "zustand";
+import type { EventRecord } from "../sdk/src/types";
 
 interface EventState {
   events: EventRecord[];
   selectedEvent: EventRecord | null;
   loading: boolean;
   error: string | null;
-  
+
   setEvents: (events: EventRecord[]) => void;
   addEvent: (event: EventRecord) => void;
   updateEvent: (eventId: number, updates: Partial<EventRecord>) => void;
@@ -37,7 +37,7 @@ export const useEventStore = create<EventState>((set) => ({
   updateEvent: (eventId, updates) =>
     set((state) => ({
       events: state.events.map((event) =>
-        event.id === eventId ? { ...event, ...updates } : event
+        event.id === eventId ? { ...event, ...updates } : event,
       ),
       selectedEvent:
         state.selectedEvent?.id === eventId

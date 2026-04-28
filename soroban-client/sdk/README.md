@@ -54,7 +54,7 @@ const result = await sdk.eventManager.createEvent(
   {
     source: walletAddress,
     signTransaction,
-  }
+  },
 );
 ```
 
@@ -63,6 +63,7 @@ const result = await sdk.eventManager.createEvent(
 The SDK automatically retries failed RPC calls with exponential backoff and jitter. This handles transient network failures, rate limiting, and temporary service unavailability.
 
 **Key Features:**
+
 - Automatic retries for transient errors (network issues, timeouts, 5xx errors)
 - Exponential backoff with configurable parameters
 - Jitter to prevent thundering herd problems
@@ -82,7 +83,14 @@ npm run sdk:generate-types
 The SDK provides typed decoder utilities for safely parsing contract responses:
 
 ```ts
-import { ContractDecoder, decodeArray, decodeStruct, decodeU32, decodeString, decodeI128 } from "./src";
+import {
+  ContractDecoder,
+  decodeArray,
+  decodeStruct,
+  decodeU32,
+  decodeString,
+  decodeI128,
+} from "./src";
 
 // Decode event response
 const event = ContractDecoder.event()(rawResponse);
@@ -99,6 +107,7 @@ const decodeCustom = decodeStruct({
 ```
 
 **Key Features:**
+
 - Type-safe contract response parsing
 - Composable decoders for complex structures
 - Clear error messages with context
@@ -106,6 +115,7 @@ const decodeCustom = decodeStruct({
 - Pre-built decoders for contract types
 
 See [DECODERS.md](./DECODERS.md) for detailed documentation.
+
 ### Batch ledger-entry fetch
 
 `batchGetLedgerEntries` wraps `rpc.Server.getLedgerEntries` so callers can
@@ -134,6 +144,7 @@ for (let i = 0; i < ledgerKeys.length; i += 1) {
 ```
 
 `chunkSize`, `concurrency`, and `keyId` are all overridable.
+
 ### Caching contract schemas at runtime
 
 Soroban contracts in this repo follow the upgradeable pattern, so each

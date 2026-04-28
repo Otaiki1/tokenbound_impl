@@ -12,15 +12,13 @@ import {
 const CONTRACT_ID = "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM";
 
 function makeSchema(
-  overrides: Partial<Omit<ContractSchema, "fetchedAt">> = {}
+  overrides: Partial<Omit<ContractSchema, "fetchedAt">> = {},
 ): Omit<ContractSchema, "fetchedAt"> {
   return {
     contractId: CONTRACT_ID,
     version: 1,
     wasmHash: "deadbeef",
-    methods: [
-      { name: "ping", args: [], returns: "u32", mutates: false },
-    ],
+    methods: [{ name: "ping", args: [], returns: "u32", mutates: false }],
     errors: [{ name: "Unauthorized", code: 1 }],
     ...overrides,
   };
@@ -117,7 +115,10 @@ describe("ContractSchemaCache", () => {
   });
 
   it("never probes when no probe is configured", async () => {
-    const resolver = new StubResolver([makeSchema(), makeSchema({ version: 99 })]);
+    const resolver = new StubResolver([
+      makeSchema(),
+      makeSchema({ version: 99 }),
+    ]);
     const cache = new ContractSchemaCache({ resolver });
 
     const first = await cache.get(CONTRACT_ID);
@@ -129,7 +130,10 @@ describe("ContractSchemaCache", () => {
   });
 
   it("manual refresh forces a refetch even when fresh", async () => {
-    const resolver = new StubResolver([makeSchema(), makeSchema({ version: 5 })]);
+    const resolver = new StubResolver([
+      makeSchema(),
+      makeSchema({ version: 5 }),
+    ]);
     const cache = new ContractSchemaCache({ resolver });
 
     await cache.get(CONTRACT_ID);
@@ -140,7 +144,10 @@ describe("ContractSchemaCache", () => {
   });
 
   it("invalidate drops the entry", async () => {
-    const resolver = new StubResolver([makeSchema(), makeSchema({ version: 7 })]);
+    const resolver = new StubResolver([
+      makeSchema(),
+      makeSchema({ version: 7 }),
+    ]);
     const cache = new ContractSchemaCache({ resolver });
 
     await cache.get(CONTRACT_ID);
@@ -167,7 +174,10 @@ describe("ContractSchemaCache", () => {
   });
 
   it("emits events for hits, misses, refreshes, and invalidations", async () => {
-    const resolver = new StubResolver([makeSchema(), makeSchema({ version: 3 })]);
+    const resolver = new StubResolver([
+      makeSchema(),
+      makeSchema({ version: 3 }),
+    ]);
     const probe = new StubProbe([
       { version: 1, wasmHash: "deadbeef" },
       { version: 3, wasmHash: "deadbeef" },
@@ -289,7 +299,7 @@ describe("WebStorageSchemaStore", () => {
     const storage = new FakeStorage();
     storage.setItem(
       `tokenbound:schema:${CONTRACT_ID}`,
-      JSON.stringify({ contractId: CONTRACT_ID, methods: [] })
+      JSON.stringify({ contractId: CONTRACT_ID, methods: [] }),
     );
     const store = new WebStorageSchemaStore(storage);
 
@@ -345,6 +355,8 @@ describe("staticSchemaResolver", () => {
 
   it("throws for unknown contract ids", async () => {
     const resolver = staticSchemaResolver({});
-    await expect(resolver.resolve(CONTRACT_ID)).rejects.toThrow(/No static schema/);
+    await expect(resolver.resolve(CONTRACT_ID)).rejects.toThrow(
+      /No static schema/,
+    );
   });
 });
