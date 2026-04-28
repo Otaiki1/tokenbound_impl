@@ -15,6 +15,8 @@ import type {
   Bytes32Like,
   ContractCallArtifact,
   ContractName,
+  GasEstimateOptions,
+  GasEstimation,
   InvokeOptions,
   PreparedTransaction,
   SorobanSubmitResult,
@@ -22,6 +24,7 @@ import type {
   TraceSpan,
   WriteInvokeOptions,
 } from "./types";
+import { parseSimulationForGas } from "./gasEstimator";
 
 const DEFAULT_TIMEOUT = 30;
 
@@ -184,17 +187,6 @@ export class SorobanSdkCore {
         } catch (error) {
           throw mapSdkError(contract, error, "Simulation failed.");
         }
-    try {
-      const source = this.resolveReadSource(
-        options?.source ?? options?.simulationSource,
-      );
-      const tx = await this.buildInvokeTransaction(source, artifact, options);
-      const simulation = await this.retryPolicy.execute(
-        () => this.rpcServer.simulateTransaction(tx),
-        `simulate ${contract}.${artifact.method}`
-      );
-      if (rpc.Api.isSimulationError(simulation)) {
-        throw mapSdkError(contract, simulation.error, "Simulation failed.");
       }
     );
   }
@@ -258,25 +250,6 @@ export class SorobanSdkCore {
         }
       }
     );
-      const tx = await this.buildInvokeTransaction(
-        options.source,
-        artifact,
-        options,
-      );
-      const simulation = await this.rpcServer.simulateTransaction(tx);
-      if (rpc.Api.isSimulationError(simulation)) {
-        throw mapSdkError(contract, simulation.error, "Simulation failed.");
-      }
-      // Prepared write transactions are assembled from a successful simulation.
-      const prepared = rpc.assembleTransaction(tx, simulation).build();
-      return {
-        xdr: prepared.toXDR(),
-        networkPassphrase: this.config.networkPassphrase,
-        source: options.source,
-      };
-    } catch (error) {
-      throw mapSdkError(contract, error, "Preparing transaction failed.");
-    }
   }
 
   async write(
@@ -307,7 +280,7 @@ export class SorobanSdkCore {
           );
           const sent = await this.rpcServer.sendTransaction(signedTx);
           if (sent.status === "ERROR") {
-            throw new Error(sent.errorResultXdr || "Transaction submission failed.");
+            throw new Error(sent.errorResult ? String(sent.errorResult) : "Transaction submission failed.");
           }
           const confirmed = await this.waitForTransaction(sent.hash);
           return {
@@ -318,26 +291,6 @@ export class SorobanSdkCore {
         } catch (error) {
           throw mapSdkError(contract, error, "Submitting transaction failed.");
         }
-    try {
-      const prepared = await this.prepareWrite(contract, artifact, options);
-      const signedXdr = await options.signTransaction(prepared.xdr, {
-        networkPassphrase: prepared.networkPassphrase,
-        address: prepared.source,
-      });
-      const signedTx = TransactionBuilder.fromXDR(
-        signedXdr,
-        this.config.networkPassphrase,
-      );
-      const sent = await this.retryPolicy.execute(
-        () => this.rpcServer.sendTransaction(signedTx),
-        `sendTransaction ${contract}.${artifact.method}`
-      );
-      if (sent.status === "ERROR") {
-        throw new Error(
-          sent.errorResult
-            ? String(sent.errorResult)
-            : "Transaction submission failed.",
-        );
       }
     );
   }
@@ -357,5 +310,104 @@ export class SorobanSdkCore {
       await new Promise((resolve) => setTimeout(resolve, delayMs));
     }
     throw new Error(`Timed out waiting for transaction ${hash}.`);
+  }
+
+  /**
+   * Estimates gas costs for a contract operation without executing it.
+   * Simulates the transaction and returns detailed cost breakdown.
+   *
+   * @param contract - Name of the contract to call
+   * @param artifact - Contract call details (contractId, method, args)
+   * @param options - Gas estimation options including source account
+   * @returns Gas estimation with costs, resources, and summary
+   *
+   * @example
+   * ```typescript
+   * const gas = await sdk.estimateGas('eventManager', artifact, {
+   *   source: 'GABC...',
+   *   feeBufferMultiplier: 1.3
+   * });
+   *
+   * console.log(gas.summary);
+   * // "Estimated gas: 0.0001234 XLM (max: 0.0001481 XLM). Resources: 50000 instructions, 1024 bytes I/O."
+   *
+   * console.log(formatGasDisplay(gas));
+   * // Prints formatted gas report
+   * ```
+   */
+  async estimateGas(
+    contract: ContractName,
+    artifact: ContractCallArtifact,
+    options: GasEstimateOptions = {},
+  ): Promise<GasEstimation> {
+    const correlationId = this.resolveCorrelationId(options);
+    return this.trace(
+      "estimateGas",
+      contract,
+      artifact.method,
+      correlationId,
+      { contractId: artifact.contractId },
+      async () => {
+        try {
+          // Use provided source or fall back to simulation source
+          const source = options.source || this.resolveReadSource(options.simulationSource);
+
+          // Build transaction for simulation
+          const tx = await this.buildInvokeTransaction(source, artifact, options);
+
+          // Get base fee for calculation
+          const baseFee = options.fee ?? Number(await this.horizonServer.fetchBaseFee());
+
+          // Simulate transaction
+          const simulation = await this.retryPolicy.execute(
+            () => this.rpcServer.simulateTransaction(tx),
+            `estimateGas ${contract}.${artifact.method}`
+          );
+
+          // Check for simulation errors
+          if (rpc.Api.isSimulationError(simulation)) {
+            return {
+              costs: {
+                baseFee,
+                resourceFee: 0,
+                refundableFee: 0,
+                totalFee: baseFee,
+                maxFee: baseFee,
+              },
+              resources: {
+                instructions: 0,
+                readBytes: 0,
+                writeBytes: 0,
+                entryReads: 0,
+                entryWrites: 0,
+                transactionSizeBytes: 0,
+                metadataSizeBytes: 0,
+              },
+              success: false,
+              summary: `Simulation failed: ${simulation.error}`,
+              rawSimulation: options.includeRawSimulation ? simulation : undefined,
+            };
+          }
+
+          // Parse simulation into gas estimation
+          const bufferMultiplier = options.feeBufferMultiplier ?? 1.2;
+          const estimation = parseSimulationForGas(
+            simulation as rpc.Api.SimulateTransactionSuccessResponse,
+            baseFee,
+            bufferMultiplier
+          );
+
+          // Optionally strip raw simulation for cleaner output
+          if (!options.includeRawSimulation) {
+            const { rawSimulation, ...cleanEstimation } = estimation;
+            return cleanEstimation as GasEstimation;
+          }
+
+          return estimation;
+        } catch (error) {
+          throw mapSdkError(contract, error, "Gas estimation failed.");
+        }
+      }
+    );
   }
 }

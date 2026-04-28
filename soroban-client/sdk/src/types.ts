@@ -199,3 +199,81 @@ export interface TracingConfig {
    */
   readonly autoCorrelation?: boolean;
 }
+
+// ── Gas Estimation ────────────────────────────────────────────────────────────
+
+/**
+ * Resource usage breakdown from transaction simulation.
+ */
+export interface ResourceUsage {
+  /** CPU instructions executed. */
+  readonly instructions: number;
+  /** Read operations performed. */
+  readonly readBytes: number;
+  /** Write operations performed. */
+  readonly writeBytes: number;
+  /** Contract entries read. */
+  readonly entryReads: number;
+  /** Contract entries written. */
+  readonly entryWrites: number;
+  /** Transaction size in bytes. */
+  readonly transactionSizeBytes: number;
+  /** Metadata size in bytes. */
+  readonly metadataSizeBytes: number;
+}
+
+/**
+ * Gas cost breakdown in stroops (1 XLM = 10^7 stroops).
+ */
+export interface GasCostBreakdown {
+  /** Base fee for transaction inclusion. */
+  readonly baseFee: number;
+  /** Fee for resource consumption (CPU, storage). */
+  readonly resourceFee: number;
+  /** Refundable fee portion (returned if tx succeeds). */
+  readonly refundableFee: number;
+  /** Total fee = baseFee + resourceFee. */
+  readonly totalFee: number;
+  /** Maximum fee the transaction could incur. */
+  readonly maxFee: number;
+}
+
+/**
+ * Gas estimation result returned by estimateGas().
+ */
+export interface GasEstimation {
+  /** Detailed cost breakdown. */
+  readonly costs: GasCostBreakdown;
+  /** Resource usage metrics. */
+  readonly resources: ResourceUsage;
+  /** Whether the simulation succeeded. */
+  readonly success: boolean;
+  /** Human-readable summary. */
+  readonly summary: string;
+  /** Raw simulation response for advanced use. */
+  readonly rawSimulation?: unknown;
+}
+
+/**
+ * Options for gas estimation.
+ */
+export interface GasEstimateOptions extends InvokeOptions {
+  /** Include raw simulation response in result. */
+  readonly includeRawSimulation?: boolean;
+  /** Buffer multiplier for max fee calculation (default: 1.2). */
+  readonly feeBufferMultiplier?: number;
+}
+
+/**
+ * Formatted gas display options.
+ */
+export interface GasDisplayOptions {
+  /** Currency to display (default: 'XLM'). */
+  readonly currency?: 'XLM' | 'stroops';
+  /** Number of decimal places for XLM (default: 7). */
+  readonly decimals?: number;
+  /** Include resource breakdown (default: true). */
+  readonly showResources?: boolean;
+  /** Include cost breakdown (default: true). */
+  readonly showCosts?: boolean;
+}
