@@ -200,6 +200,8 @@ pub struct RefundClaimedEvent {
     pub total_paid: i128,
 }
 
+/// Per-attendee POAP metadata sent over the wire to the POAP NFT contract's
+/// `mint_poap` entry point. Field shape must match `poap_nft::PoapMetadata`.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TicketPurchasedEvent {
@@ -785,6 +787,17 @@ impl EventManager {
         env.events()
             .publish((Symbol::new(&env, "RefundClaimed"),), event);
 
+    pub fn initialize_legacy(env: Env, ticket_factory: Address) -> Result<(), Error> {
+        if env.storage().instance().has(&DataKey::TicketFactory) {
+            return Err(Error::AlreadyInitialized);
+        }
+        upg::set_admin(&env, &ticket_factory);
+        upg::init_version(&env);
+        env.storage()
+            .instance()
+            .set(&DataKey::TicketFactory, &ticket_factory);
+        env.storage().instance().set(&DataKey::EventCounter, &0u32);
+        upg::extend_instance_ttl(&env);
         Ok(())
     }
 
@@ -1181,6 +1194,27 @@ impl EventManager {
 
     pub fn commit_upgrade(env: Env) {
         upg::commit_upgrade(&env);
+    }
+
+    /// Immediate (fast-path) upgrade. Admin-only, no timelock — see
+    /// `upgradeable::upgrade` for the full security note. Reserve for
+    /// emergencies; prefer `schedule_upgrade` + `commit_upgrade` for
+    /// routine upgrades.
+    pub fn upgrade(env: Env, new_wasm_hash: BytesN<32>) {
+        upg::upgrade(&env, new_wasm_hash);
+    }
+
+    /// Apply post-upgrade state-shape migrations and bump the version to
+    /// `target_version`. Admin-only; rejects downgrades.
+    pub fn migrate(env: Env, target_version: u32) {
+        upg::require_admin(&env);
+        upg::require_version_increase(&env, target_version);
+
+        match target_version {
+            _ => {}
+        }
+
+        upg::migration_completed(&env, target_version);
     }
 
     pub fn pause(env: Env) {

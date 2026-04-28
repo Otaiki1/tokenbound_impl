@@ -101,6 +101,47 @@ impl UpgradeableReference {
         upg::commit_upgrade(&env);
     }
 
+    /// Immediate (fast-path) upgrade — replaces the contract WASM in one call.
+    ///
+    /// # Security
+    /// - Admin-only: `require_auth()` is enforced inside `upg::upgrade`.
+    /// - The new WASM must already be uploaded via
+    ///   `env.deployer().upload_contract_wasm(...)`.
+    /// - This entry point skips the 24-hour timelock that gates
+    ///   `schedule_upgrade` / `commit_upgrade`. Operators should reserve it
+    ///   for emergencies (live exploit response) and prefer the timelocked
+    ///   path for routine upgrades.
+    /// - Increments the on-chain version counter and emits an `Upgraded`
+    ///   event for off-chain audit trails.
+    pub fn upgrade(env: Env, new_wasm_hash: BytesN<32>) {
+        upg::upgrade(&env, new_wasm_hash);
+    }
+
+    /// Apply post-upgrade state-shape migrations and bump the version to
+    /// `target_version`.
+    ///
+    /// # Security
+    /// - Admin-only.
+    /// - Panics if `target_version <= current_version` (downgrade guard
+    ///   enforced by `upg::require_version_increase`).
+    ///
+    /// Each future schema change adds a `match target_version` arm with the
+    /// transformation logic. The reference contract has no migrations yet,
+    /// so the body is a pass-through that records the new version.
+    pub fn migrate(env: Env, target_version: u32) {
+        upg::require_admin(&env);
+        upg::require_version_increase(&env, target_version);
+
+        // Per-version migration logic lives here. Add new arms as the
+        // contract's storage shape evolves; the wildcard arm is a no-op
+        // for versions that don't need data migration.
+        match target_version {
+            _ => {}
+        }
+
+        upg::migration_completed(&env, target_version);
+    }
+
     pub fn pause(env: Env) {
         upg::pause(&env);
     }
