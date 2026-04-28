@@ -22,6 +22,7 @@ export * from "./typedClient";
 export * from "./validation";
 export * from "./runtime/typeGuards";
 export * from "./builder/contractCallBuilder";
+export * from "./gasEstimator";
 
 export class TokenboundSdk extends SorobanSdkCore {
   readonly eventManager: EventManagerContract;
