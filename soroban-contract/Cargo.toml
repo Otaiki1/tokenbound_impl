@@ -3,6 +3,7 @@ resolver = "2"
 members = [
   "contracts/nonce_manager",
   "contracts/upgradeable",
+  "contracts/access_control",
   "contracts/collections",
   "contracts/upgradeable_reference",
   "contracts/tba_account",
@@ -18,6 +19,9 @@ members = [
   "contracts/merkle_distributor",
   "contracts/payment_splitter",
   "contracts/escrow",
+  "contracts/reentrancy_guard",
+  "contracts/multi_admin",
+  "contracts/permit_wallet",
   "tests/integration",
 ]
 exclude = ["contracts/hello-world"]
