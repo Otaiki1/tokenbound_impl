@@ -20,6 +20,7 @@ export interface TokenboundSdkConfig {
   /** Optional tracing hooks for observability. */
   readonly tracing?: TracingConfig;
   readonly retryConfig?: RetryConfig;
+  readonly middleware?: readonly InvocationMiddleware[];
 }
 
 export interface InvokeOptions {

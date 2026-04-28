@@ -16,6 +16,9 @@ import type {
   ContractCallArtifact,
   ContractName,
   InvokeOptions,
+  InvocationAfterContext,
+  InvocationBeforeContext,
+  InvocationStage,
   PreparedTransaction,
   SorobanSubmitResult,
   TokenboundSdkConfig,
@@ -60,12 +63,14 @@ export class SorobanSdkCore {
   readonly horizonServer: Horizon.Server;
   readonly rpcServer: rpc.Server;
   readonly retryPolicy: RetryPolicy;
+  private readonly middleware;
 
   constructor(config: TokenboundSdkConfig) {
     this.config = config;
     this.horizonServer = new Horizon.Server(config.horizonUrl);
     this.rpcServer = new rpc.Server(config.sorobanRpcUrl);
     this.retryPolicy = new RetryPolicy(config.retryConfig);
+    this.middleware = [...(config.middleware ?? [])];
   }
 
   // ── Tracing helpers ─────────────────────────────────────────────────────────
@@ -134,6 +139,69 @@ export class SorobanSdkCore {
       );
     }
     return source;
+  }
+
+  private async runWithMiddleware<T>({
+    stage,
+    contract,
+    artifact,
+    source,
+    txHash,
+    metadata,
+    operation,
+  }: {
+    stage: InvocationStage;
+    contract: ContractName;
+    artifact: ContractCallArtifact;
+    source?: string | null;
+    txHash?: string;
+    metadata?: Readonly<Record<string, unknown>>;
+    operation: () => Promise<T>;
+  }): Promise<T> {
+    const startedAtMs = Date.now();
+    const base: InvocationBeforeContext = {
+      stage,
+      contract,
+      method: artifact.method,
+      contractId: artifact.contractId,
+      startedAtMs,
+      source,
+      txHash,
+      metadata,
+    };
+
+    for (const hook of this.middleware) {
+      await hook.before?.(base);
+    }
+
+    try {
+      const result = await operation();
+      const finishedAtMs = Date.now();
+      const context: InvocationAfterContext = {
+        ...base,
+        finishedAtMs,
+        durationMs: finishedAtMs - startedAtMs,
+        success: true,
+        result,
+      };
+      for (const hook of this.middleware) {
+        await hook.after?.(context);
+      }
+      return result;
+    } catch (error) {
+      const finishedAtMs = Date.now();
+      const context: InvocationAfterContext = {
+        ...base,
+        finishedAtMs,
+        durationMs: finishedAtMs - startedAtMs,
+        success: false,
+        error,
+      };
+      for (const hook of this.middleware) {
+        await hook.after?.(context);
+      }
+      throw error;
+    }
   }
 
   async buildInvokeTransaction(
@@ -261,19 +329,26 @@ export class SorobanSdkCore {
       const tx = await this.buildInvokeTransaction(
         options.source,
         artifact,
-        options,
-      );
-      const simulation = await this.rpcServer.simulateTransaction(tx);
-      if (rpc.Api.isSimulationError(simulation)) {
-        throw mapSdkError(contract, simulation.error, "Simulation failed.");
-      }
-      // Prepared write transactions are assembled from a successful simulation.
-      const prepared = rpc.assembleTransaction(tx, simulation).build();
-      return {
-        xdr: prepared.toXDR(),
-        networkPassphrase: this.config.networkPassphrase,
         source: options.source,
-      };
+        operation: async () => {
+          const tx = await this.buildInvokeTransaction(
+            options.source!,
+            artifact,
+            options,
+          );
+          const simulation = await this.rpcServer.simulateTransaction(tx);
+          if (rpc.Api.isSimulationError(simulation)) {
+            throw mapSdkError(contract, simulation.error, "Simulation failed.");
+          }
+          // Prepared write transactions are assembled from a successful simulation.
+          const prepared = rpc.assembleTransaction(tx, simulation).build();
+          return {
+            xdr: prepared.toXDR(),
+            networkPassphrase: this.config.networkPassphrase,
+            source: options.source!,
+          };
+        },
+      });
     } catch (error) {
       throw mapSdkError(contract, error, "Preparing transaction failed.");
     }
@@ -319,10 +394,53 @@ export class SorobanSdkCore {
           throw mapSdkError(contract, error, "Submitting transaction failed.");
         }
     try {
-      const prepared = await this.prepareWrite(contract, artifact, options);
-      const signedXdr = await options.signTransaction(prepared.xdr, {
-        networkPassphrase: prepared.networkPassphrase,
-        address: prepared.source,
+      return await this.runWithMiddleware({
+        stage: "write",
+        contract,
+        artifact,
+        source: options.source,
+        operation: async () => {
+          const prepared = await this.prepareWrite(contract, artifact, options);
+          const signedXdr = await options.signTransaction(prepared.xdr, {
+            networkPassphrase: prepared.networkPassphrase,
+            address: prepared.source,
+          });
+          const signedTx = TransactionBuilder.fromXDR(
+            signedXdr,
+            this.config.networkPassphrase,
+          );
+          const sent = await this.runWithMiddleware({
+            stage: "sendTransaction",
+            contract,
+            artifact,
+            source: options.source,
+            operation: async () =>
+              this.retryPolicy.execute(
+                () => this.rpcServer.sendTransaction(signedTx),
+                `sendTransaction ${contract}.${artifact.method}`,
+              ),
+          });
+          if (sent.status === "ERROR") {
+            throw new Error(
+              sent.errorResult
+                ? String(sent.errorResult)
+                : "Transaction submission failed.",
+            );
+          }
+          const confirmed = await this.runWithMiddleware({
+            stage: "waitForTransaction",
+            contract,
+            artifact,
+            source: options.source,
+            txHash: sent.hash,
+            operation: async () => this.waitForTransaction(sent.hash),
+          });
+          return {
+            hash: sent.hash,
+            ledger: confirmed.ledger,
+            status: confirmed.status,
+          };
+        },
       });
       const signedTx = TransactionBuilder.fromXDR(
         signedXdr,
@@ -346,7 +464,7 @@ export class SorobanSdkCore {
     for (let attempt = 0; attempt < attempts; attempt += 1) {
       const transaction = await this.retryPolicy.execute(
         () => this.rpcServer.getTransaction(hash),
-        `getTransaction ${hash}`
+        `getTransaction ${hash}`,
       );
       if (transaction.status === rpc.Api.GetTransactionStatus.SUCCESS) {
         return transaction;
