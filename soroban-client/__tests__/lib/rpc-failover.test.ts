@@ -96,6 +96,8 @@ describe("RPC Failover Manager", () => {
     manager["horizonEndpoints"].forEach((endpoint) => {
       endpoint.isHealthy = false;
     });
+    // Prevent an automatic refresh from re-marking endpoints as healthy.
+    manager["lastHealthCheck"] = Date.now();
 
     await expect(manager.getHorizonServer()).rejects.toThrow(
       "No healthy Horizon endpoints available",
