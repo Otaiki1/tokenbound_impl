@@ -45,6 +45,20 @@ pub struct AdminChangedEvent {
     pub new_admin: Address,
 }
 
+/// Emitted when [`migration_completed`] runs successfully against a contract.
+///
+/// Migrations are state-shape transformations applied AFTER the WASM swap.
+/// Off-chain indexers should treat this event as "the contract at version
+/// `from_version` has been migrated to `to_version` and the new schema is
+/// now in effect".
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MigratedEvent {
+    pub contract_address: Address,
+    pub from_version: u32,
+    pub to_version: u32,
+}
+
 #[contracttype]
 #[derive(Clone)]
 pub enum UpgradeKey {
@@ -200,6 +214,104 @@ pub fn transfer_admin(env: &Env, new_admin: Address) {
     };
     env.events()
         .publish((Symbol::new(env, "AdminChanged"),), event);
+}
+
+// ── Fast-path upgrade (no timelock) ──────────────────────────────────────────
+//
+// SECURITY NOTE
+// -------------
+// `upgrade(...)` performs an immediate WASM swap with no timelock. It exists
+// alongside the safer `schedule_upgrade` / `commit_upgrade` two-step flow for
+// situations where the slower timelocked path is unsuitable (e.g. responding
+// to a live exploit). Because it skips the 24-hour grace window, a compromised
+// admin key can use this entry point to replace the contract code instantly,
+// so projects deploying this library SHOULD prefer the timelocked path for
+// routine upgrades and reserve `upgrade()` for emergencies. Both paths share
+// the same admin-auth + version-bump invariants.
+
+/// Immediate (fast-path) upgrade: replace the contract WASM in a single call.
+///
+/// # Authorisation
+/// Requires the current admin's signature via `require_auth()` — see the
+/// SECURITY NOTE above before exposing this from a contract.
+///
+/// # Arguments
+/// * `env` — the contract environment.
+/// * `new_wasm_hash` — hash of the new WASM blob; must already be uploaded
+///   on-chain via `env.deployer().upload_contract_wasm(...)`.
+///
+/// # Side effects
+/// 1. Authenticates the admin.
+/// 2. Increments the version counter (`get_version(env) + 1`).
+/// 3. Calls `env.deployer().update_current_contract_wasm(new_wasm_hash)` to
+///    swap the bytecode in place. The contract address does **not** change.
+/// 4. Emits an [`UpgradedEvent`] for off-chain monitoring.
+pub fn upgrade(env: &Env, new_wasm_hash: BytesN<32>) {
+    require_admin(env);
+
+    let old_version = get_version(env);
+    let new_version = bump_version(env);
+
+    env.deployer()
+        .update_current_contract_wasm(new_wasm_hash.clone());
+
+    let event = UpgradedEvent {
+        contract_address: env.current_contract_address(),
+        new_wasm_hash,
+        old_version,
+        new_version,
+    };
+    env.events()
+        .publish((Symbol::new(env, "Upgraded"),), event);
+}
+
+// ── Version / migration helpers ──────────────────────────────────────────────
+
+/// Guard helper for `migrate(...)` entry points — panics if `target_version`
+/// would be a downgrade or a no-op.
+///
+/// Use this at the top of every contract-specific `migrate` function to
+/// enforce the "version must strictly increase" invariant. Calling it when
+/// `target_version <= get_version(env)` panics with `"downgrade not allowed"`,
+/// which surfaces to off-chain callers as a contract revert.
+pub fn require_version_increase(env: &Env, target_version: u32) {
+    let current = get_version(env);
+    assert!(
+        target_version > current,
+        "downgrade not allowed"
+    );
+}
+
+/// Mark an in-progress migration as complete and emit a [`MigratedEvent`].
+///
+/// Contracts call this from their `migrate(target_version)` function once
+/// the contract-specific state-shape transformations have been applied. The
+/// stored version is updated to `target_version` so subsequent calls to
+/// `version()` reflect the migrated state.
+///
+/// # Authorisation
+/// **Does not** call `require_auth()` itself — the surrounding `migrate`
+/// entry point is expected to have authenticated the admin already, and
+/// Soroban auth frames don't permit a second `require_auth` against the
+/// same admin within the same call. Callers must invoke
+/// [`require_admin`] before reaching this function.
+///
+/// # Panics
+/// Panics if `target_version <= current_version` (no-op or downgrade).
+pub fn migration_completed(env: &Env, target_version: u32) {
+    let from_version = get_version(env);
+    require_version_increase(env, target_version);
+    env.storage()
+        .instance()
+        .set(&UpgradeKey::Version, &target_version);
+
+    let event = MigratedEvent {
+        contract_address: env.current_contract_address(),
+        from_version,
+        to_version: target_version,
+    };
+    env.events()
+        .publish((Symbol::new(env, "Migrated"),), event);
 }
 
 // ── Storage TTL helpers ──────────────────────────────────────────────────────

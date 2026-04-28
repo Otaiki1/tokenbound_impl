@@ -24,6 +24,7 @@
         }
       ]
     ],
+    [],
     [
       [
         "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
@@ -31,10 +32,10 @@
           "function": {
             "contract_fn": {
               "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
-              "function_name": "schedule_upgrade",
+              "function_name": "migrate",
               "args": [
                 {
-                  "bytes": "abababababababababababababababababababababababababababababababab"
+                  "u32": 5
                 }
               ]
             }
@@ -47,7 +48,7 @@
   ],
   "ledger": {
     "protocol_version": 25,
-    "sequence_number": 18279,
+    "sequence_number": 1000,
     "timestamp": 0,
     "network_id": "0000000000000000000000000000000000000000000000000000000000000000",
     "base_reserve": 0,
@@ -150,31 +151,12 @@
                       "key": {
                         "vec": [
                           {
-                            "symbol": "PendingUpgrade"
-                          }
-                        ]
-                      },
-                      "val": {
-                        "vec": [
-                          {
-                            "bytes": "abababababababababababababababababababababababababababababababab"
-                          },
-                          {
-                            "u32": 1000
-                          }
-                        ]
-                      }
-                    },
-                    {
-                      "key": {
-                        "vec": [
-                          {
                             "symbol": "Version"
                           }
                         ]
                       },
                       "val": {
-                        "u32": 1
+                        "u32": 5
                       }
                     }
                   ]
