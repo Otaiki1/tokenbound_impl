@@ -50,6 +50,7 @@ pub enum DataKey {
     Metadata(u128),
     OffChain(u128),
     MintedForEvent(u32, Address),
+    Approval(u128),
 }
 
 #[contract]
@@ -212,5 +213,36 @@ impl PoapNft {
     }
 }
 
+
+    /// ERC-20 compatible approve function
+    /// Allows `spender` to transfer `token_id` on behalf of the owner
+    pub fn approve(env: Env, owner: Address, spender: Address, token_id: u128) -> Result<(), Error> {
+        owner.require_auth();
+        let current_owner = env.storage().persistent().get::
+<DataKey, Address>(&DataKey::Owner(token_id)).ok_or(Error::TokenNotFound)?;
+        if current_owner != owner {
+            return Err(Error::NotOwner);
+        }
+        env.storage().persistent().set(&DataKey::Approval(token_id), &spender);
+        Ok(())
+    }
+
+    /// ERC-20 compatible transfer_from function
+    /// Transfers `token_id` from `from` to `to` if caller is approved
+    pub fn transfer_from(env: Env, spender: Address, from: Address, to: Address, token_id: u128) -> Result<(), Error> {
+        spender.require_auth();
+        let current_owner = env.storage().persistent().get::
+<DataKey, Address>(&DataKey::Owner(token_id)).ok_or(Error::TokenNotFound)?;
+        if current_owner != from {
+            return Err(Error::NotOwner);
+        }
+        let approved: Address = env.storage().persistent().get(&DataKey::Approval(token_id)).ok_or(Error::NotApproved)?;
+        if approved != spender {
+            return Err(Error::NotApproved);
+        }
+        env.storage().persistent().set(&DataKey::Owner(token_id), &to);
+        env.storage().persistent().remove(&DataKey::Approval(token_id));
+        Ok(())
+    }
 #[cfg(test)]
 mod test;
