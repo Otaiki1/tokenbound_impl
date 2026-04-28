@@ -23,76 +23,54 @@ pub enum Error {
 #[contract]
 pub struct TbaAccount;
 
+// STORAGE: TBA token binding (token_contract / token_id / implementation_hash
+// / salt) is written exactly once in `initialize` and never mutates after.
+// Pack the four immutable fields into a single `Config` instance entry — this
+// drops `initialize` from 5 instance writes (TokenContract, TokenId,
+// ImplementationHash, Salt, Initialized) to 1, and the entry's existence
+// itself replaces the explicit `Initialized` flag (`is_initialized` becomes
+// `has(&Config)`).
+//
+// Nonce state is owned by the external `nonce_manager` crate and is therefore
+// not represented in this enum.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TbaConfig {
+    pub token_contract: Address,
+    pub token_id: u128,
+    pub implementation_hash: BytesN<32>,
+    pub salt: BytesN<32>,
+}
+
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum DataKey {
-    TokenContract,      // Address of the NFT contract
-    TokenId,            // Specific NFT token ID (u128)
-    ImplementationHash, // Hash used for deployment (u256)
-    Salt,               // Deployment salt (u256)
-    Initialized,        // Init flag
+    /// Packed token binding (set once in `initialize`).
+    Config,
 }
 
 // Helper functions for storage
-fn get_token_contract(env: &Env) -> Result<Address, Error> {
+fn get_config(env: &Env) -> Result<TbaConfig, Error> {
     env.storage()
         .instance()
-        .get(&DataKey::TokenContract)
+        .get(&DataKey::Config)
         .ok_or(Error::NotInitialized)
 }
 
-fn set_token_contract(env: &Env, token_contract: &Address) {
-    env.storage()
-        .instance()
-        .set(&DataKey::TokenContract, token_contract);
+fn set_config(env: &Env, config: &TbaConfig) {
+    env.storage().instance().set(&DataKey::Config, config);
+}
+
+fn get_token_contract(env: &Env) -> Result<Address, Error> {
+    Ok(get_config(env)?.token_contract)
 }
 
 fn get_token_id(env: &Env) -> Result<u128, Error> {
-    env.storage()
-        .instance()
-        .get(&DataKey::TokenId)
-        .ok_or(Error::NotInitialized)
-}
-
-fn set_token_id(env: &Env, token_id: &u128) {
-    env.storage().instance().set(&DataKey::TokenId, token_id);
-}
-
-fn get_implementation_hash(env: &Env) -> Result<BytesN<32>, Error> {
-    env.storage()
-        .instance()
-        .get(&DataKey::ImplementationHash)
-        .ok_or(Error::NotInitialized)
-}
-
-fn set_implementation_hash(env: &Env, implementation_hash: &BytesN<32>) {
-    env.storage()
-        .instance()
-        .set(&DataKey::ImplementationHash, implementation_hash);
-}
-
-fn get_salt(env: &Env) -> Result<BytesN<32>, Error> {
-    env.storage()
-        .instance()
-        .get(&DataKey::Salt)
-        .ok_or(Error::NotInitialized)
-}
-
-fn set_salt(env: &Env, salt: &BytesN<32>) {
-    env.storage().instance().set(&DataKey::Salt, salt);
+    Ok(get_config(env)?.token_id)
 }
 
 fn is_initialized(env: &Env) -> bool {
-    env.storage()
-        .instance()
-        .get(&DataKey::Initialized)
-        .unwrap_or(false)
-}
-
-fn set_initialized(env: &Env, initialized: &bool) {
-    env.storage()
-        .instance()
-        .set(&DataKey::Initialized, initialized);
+    env.storage().instance().has(&DataKey::Config)
 }
 
 #[contracttype]
@@ -131,12 +109,16 @@ impl TbaAccount {
             return Err(Error::AlreadyInitialized);
         }
 
-        // Store all parameters
-        set_token_contract(&env, &token_contract);
-        set_token_id(&env, &token_id);
-        set_implementation_hash(&env, &implementation_hash);
-        set_salt(&env, &salt);
-        set_initialized(&env, &true);
+        // STORAGE: pack the four immutable fields into a single instance
+        // entry. Replaces 5 separate writes (TokenContract, TokenId,
+        // ImplementationHash, Salt, Initialized) with 1.
+        let config = TbaConfig {
+            token_contract: token_contract.clone(),
+            token_id,
+            implementation_hash,
+            salt,
+        };
+        set_config(&env, &config);
 
         // The NFT owner at initialization time becomes the upgrade admin
         let owner = get_nft_owner(&env, &token_contract, token_id);

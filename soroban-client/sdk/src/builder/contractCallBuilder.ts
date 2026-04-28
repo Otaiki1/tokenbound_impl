@@ -1,5 +1,5 @@
-import { nativeToScVal } from '@stellar/stellar-base';
-import type { InvokeOptions, WriteInvokeOptions } from '../types';
+import { nativeToScVal } from "@stellar/stellar-base";
+import type { InvokeOptions, WriteInvokeOptions } from "../types";
 
 export interface ContractCallStep<TInput, TOutput> {
   readonly input: TInput;
@@ -28,7 +28,7 @@ export class ContractCallBuilder<TInput = unknown, TOutput = unknown> {
 
   validate(): void {
     if (!this._input) {
-      throw new Error('Input is required');
+      throw new Error("Input is required");
     }
 
     for (const validator of this._validators) {
@@ -54,7 +54,10 @@ export class ContractCallBuilder<TInput = unknown, TOutput = unknown> {
   }
 }
 
-export function createCallBuilder<TInput, TOutput>(): ContractCallBuilder<TInput, TOutput> {
+export function createCallBuilder<TInput, TOutput>(): ContractCallBuilder<
+  TInput,
+  TOutput
+> {
   return new ContractCallBuilder<TInput, TOutput>();
 }
 
@@ -66,7 +69,9 @@ export class BatchCallBuilder {
     return this;
   }
 
-  addBuilder<TInput, TOutput>(builder: ContractCallBuilder<TInput, TOutput>): this {
+  addBuilder<TInput, TOutput>(
+    builder: ContractCallBuilder<TInput, TOutput>,
+  ): this {
     this.calls.push(builder.build());
     return this;
   }

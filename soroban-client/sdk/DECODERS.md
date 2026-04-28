@@ -34,19 +34,28 @@ import {
 ### Primitive Types
 
 ```typescript
-import { decodeString, decodeNumber, decodeBigInt, decodeBoolean } from "@crowdpass/tokenbound-sdk";
+import {
+  decodeString,
+  decodeNumber,
+  decodeBigInt,
+  decodeBoolean,
+} from "@crowdpass/tokenbound-sdk";
 
 // Decode primitives
-const name = decodeString("Alice");              // "Alice"
-const age = decodeNumber(25);                    // 25
-const balance = decodeBigInt("1000000000");      // 1000000000n
-const active = decodeBoolean(true);              // true
+const name = decodeString("Alice"); // "Alice"
+const age = decodeNumber(25); // 25
+const balance = decodeBigInt("1000000000"); // 1000000000n
+const active = decodeBoolean(true); // true
 ```
 
 ### Arrays
 
 ```typescript
-import { decodeArray, decodeNumber, decodeString } from "@crowdpass/tokenbound-sdk";
+import {
+  decodeArray,
+  decodeNumber,
+  decodeString,
+} from "@crowdpass/tokenbound-sdk";
 
 // Decode array of numbers
 const numbers = decodeArray(decodeNumber)([1, 2, 3, 4, 5]);
@@ -65,16 +74,21 @@ import { decodeOption, decodeNumber } from "@crowdpass/tokenbound-sdk";
 // Decode optional number
 const maybeNumber = decodeOption(decodeNumber);
 
-maybeNumber(null);           // null
-maybeNumber(undefined);      // null
-maybeNumber({ Some: 42 });   // 42 (Soroban Option format)
-maybeNumber(42);             // 42 (direct value)
+maybeNumber(null); // null
+maybeNumber(undefined); // null
+maybeNumber({ Some: 42 }); // 42 (Soroban Option format)
+maybeNumber(42); // 42 (direct value)
 ```
 
 ### Structs/Objects
 
 ```typescript
-import { decodeStruct, decodeNumber, decodeString, decodeBoolean } from "@crowdpass/tokenbound-sdk";
+import {
+  decodeStruct,
+  decodeNumber,
+  decodeString,
+  decodeBoolean,
+} from "@crowdpass/tokenbound-sdk";
 
 // Define a struct decoder
 const decodeUser = decodeStruct({
@@ -97,14 +111,15 @@ const user = decodeUser({
 ### Tuples
 
 ```typescript
-import { decodeTuple, decodeNumber, decodeString, decodeBoolean } from "@crowdpass/tokenbound-sdk";
-
-// Decode tuple with mixed types
-const decodeMixedTuple = decodeTuple(
+import {
+  decodeTuple,
   decodeNumber,
   decodeString,
-  decodeBoolean
-);
+  decodeBoolean,
+} from "@crowdpass/tokenbound-sdk";
+
+// Decode tuple with mixed types
+const decodeMixedTuple = decodeTuple(decodeNumber, decodeString, decodeBoolean);
 
 const result = decodeMixedTuple([42, "hello", true]);
 // [42, "hello", true]
@@ -148,8 +163,12 @@ const price = decodeI128(-5000000000n);
 import { decodeAddress } from "@crowdpass/tokenbound-sdk";
 
 // Stellar address (G... or C...)
-const organizer = decodeAddress("GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX");
-const contract = decodeAddress("CXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX");
+const organizer = decodeAddress(
+  "GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+);
+const contract = decodeAddress(
+  "CXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+);
 ```
 
 ### Bytes
@@ -227,9 +246,9 @@ import { ContractDecoder } from "@crowdpass/tokenbound-sdk";
 const decodeToken = ContractDecoder.tbaToken();
 
 const token = decodeToken([
-  1,                                                              // chain_id
-  "CXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",   // token_contract
-  123n,                                                           // token_id
+  1, // chain_id
+  "CXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX", // token_contract
+  123n, // token_id
 ]);
 // [1, "CXXX...", 123n]
 ```
@@ -257,7 +276,7 @@ const decodeEventWithTiers = decodeStruct({
       name: decodeString,
       price: decodeI128,
       available: decodeOption(decodeU32),
-    })
+    }),
   ),
 });
 
@@ -277,19 +296,13 @@ const event = decodeEventWithTiers({
 import { decodeTransform, decodeString } from "@crowdpass/tokenbound-sdk";
 
 // Decode and transform to uppercase
-const decodeUppercase = decodeTransform(
-  decodeString,
-  (s) => s.toUpperCase()
-);
+const decodeUppercase = decodeTransform(decodeString, (s) => s.toUpperCase());
 
 const result = decodeUppercase("hello");
 // "HELLO"
 
 // Decode number and multiply
-const decodeDouble = decodeTransform(
-  decodeNumber,
-  (n) => n * 2
-);
+const decodeDouble = decodeTransform(decodeNumber, (n) => n * 2);
 
 const doubled = decodeDouble(21);
 // 42
@@ -304,11 +317,11 @@ import { decodeValidate, decodeNumber } from "@crowdpass/tokenbound-sdk";
 const decodePositive = decodeValidate(
   decodeNumber,
   (n) => n > 0,
-  "Must be positive"
+  "Must be positive",
 );
 
-decodePositive(5);    // 5
-decodePositive(-5);   // throws DecoderError: Must be positive
+decodePositive(5); // 5
+decodePositive(-5); // throws DecoderError: Must be positive
 ```
 
 ### Decode with Default Value
@@ -319,22 +332,23 @@ import { decodeWithDefault, decodeNumber } from "@crowdpass/tokenbound-sdk";
 // Decode with fallback
 const decodeWithZero = decodeWithDefault(decodeNumber, 0);
 
-decodeWithZero(42);        // 42
+decodeWithZero(42); // 42
 decodeWithZero("invalid"); // 0 (fallback)
 ```
 
 ### Decode One of Multiple Types
 
 ```typescript
-import { decodeOneOf, decodeNumber, decodeString } from "@crowdpass/tokenbound-sdk";
+import {
+  decodeOneOf,
+  decodeNumber,
+  decodeString,
+} from "@crowdpass/tokenbound-sdk";
 
 // Try number first, then string
-const decodeNumberOrString = decodeOneOf(
-  decodeNumber,
-  decodeString
-);
+const decodeNumberOrString = decodeOneOf(decodeNumber, decodeString);
 
-decodeNumberOrString(42);      // 42
+decodeNumberOrString(42); // 42
 decodeNumberOrString("hello"); // "hello"
 ```
 
@@ -346,11 +360,11 @@ import { decodeEnum } from "@crowdpass/tokenbound-sdk";
 // Define enum decoder
 const decodeEventType = decodeEnum(
   ["Conference", "Concert", "Workshop", "Meetup"] as const,
-  "EventType"
+  "EventType",
 );
 
 decodeEventType("Conference"); // "Conference"
-decodeEventType("Invalid");    // throws DecoderError
+decodeEventType("Invalid"); // throws DecoderError
 ```
 
 ### Decode Literal Values
@@ -423,14 +437,17 @@ try {
 Decode contract responses with automatic error handling:
 
 ```typescript
-import { decodeContractResponse, ContractDecoder } from "@crowdpass/tokenbound-sdk";
+import {
+  decodeContractResponse,
+  ContractDecoder,
+} from "@crowdpass/tokenbound-sdk";
 
 const response = await contract.getEvent(1);
 
 const event = decodeContractResponse(
   ContractDecoder.event(),
   response,
-  "getEvent"
+  "getEvent",
 );
 ```
 
@@ -439,7 +456,10 @@ const event = decodeContractResponse(
 ### Using Decoders in Contract Methods
 
 ```typescript
-import { createTokenboundSdk, ContractDecoder } from "@crowdpass/tokenbound-sdk";
+import {
+  createTokenboundSdk,
+  ContractDecoder,
+} from "@crowdpass/tokenbound-sdk";
 
 const sdk = createTokenboundSdk({
   // ... config
@@ -457,7 +477,12 @@ const event = ContractDecoder.event()(rawEvent);
 Create decoders for your custom contracts:
 
 ```typescript
-import { decodeStruct, decodeU32, decodeString, decodeAddress } from "@crowdpass/tokenbound-sdk";
+import {
+  decodeStruct,
+  decodeU32,
+  decodeString,
+  decodeAddress,
+} from "@crowdpass/tokenbound-sdk";
 
 // Define custom contract response decoder
 const decodeMyContractResponse = decodeStruct({
@@ -488,7 +513,11 @@ const event = decodeEvent(response);
 ### 2. Use Type Inference
 
 ```typescript
-import { decodeStruct, decodeNumber, decodeString } from "@crowdpass/tokenbound-sdk";
+import {
+  decodeStruct,
+  decodeNumber,
+  decodeString,
+} from "@crowdpass/tokenbound-sdk";
 
 const decodeUser = decodeStruct({
   id: decodeNumber,
@@ -528,7 +557,7 @@ const decodeEventUpdate = decodeStruct({
 const decodePositivePrice = decodeValidate(
   decodeI128,
   (price) => price > 0n,
-  "Price must be positive"
+  "Price must be positive",
 );
 
 const decodeEvent = decodeStruct({
@@ -549,7 +578,7 @@ const decodeEvent = ContractDecoder.event();
 const events = responses.map(decodeEvent);
 
 // Avoid: Creating decoder in loop
-responses.map(r => ContractDecoder.event()(r));
+responses.map((r) => ContractDecoder.event()(r));
 ```
 
 ### Early Validation
@@ -580,7 +609,11 @@ const user = decodeUser(data);
 ### Testing Decoders
 
 ```typescript
-import { decodeStruct, decodeNumber, decodeString } from "@crowdpass/tokenbound-sdk";
+import {
+  decodeStruct,
+  decodeNumber,
+  decodeString,
+} from "@crowdpass/tokenbound-sdk";
 
 describe("User Decoder", () => {
   const decodeUser = decodeStruct({
@@ -594,8 +627,9 @@ describe("User Decoder", () => {
   });
 
   it("should throw on invalid user", () => {
-    expect(() => decodeUser({ id: "invalid", name: "Alice" }))
-      .toThrow(DecoderError);
+    expect(() => decodeUser({ id: "invalid", name: "Alice" })).toThrow(
+      DecoderError,
+    );
   });
 });
 ```
@@ -619,12 +653,14 @@ expect(event.id).toBe(1);
 ### From Unsafe Type Assertions
 
 **Before:**
+
 ```typescript
 const event = response as EventRecord;
 // No validation, runtime errors possible
 ```
 
 **After:**
+
 ```typescript
 const event = ContractDecoder.event()(response);
 // Validated, type-safe, clear errors
@@ -633,6 +669,7 @@ const event = ContractDecoder.event()(response);
 ### From Manual Validation
 
 **Before:**
+
 ```typescript
 function parseEvent(raw: any): EventRecord {
   if (typeof raw.id !== "number") throw new Error("Invalid id");
@@ -643,6 +680,7 @@ function parseEvent(raw: any): EventRecord {
 ```
 
 **After:**
+
 ```typescript
 const decodeEvent = ContractDecoder.event();
 const event = decodeEvent(raw);
@@ -653,14 +691,17 @@ const event = decodeEvent(raw);
 ### Common Errors
 
 **"Expected string, got number"**
+
 - The value type doesn't match the decoder
 - Check the contract return type
 
 **"Expected array, got object"**
+
 - Using array decoder on non-array value
 - Verify the contract response structure
 
 **"Struct field 'x': Expected number, got undefined"**
+
 - Missing required field in response
 - Check if field should be optional
 
@@ -685,6 +726,7 @@ try {
 See the [full API documentation](./src/decoders.ts) for all available decoders and utilities.
 
 ### Primitive Decoders
+
 - `decodeString`
 - `decodeNumber`
 - `decodeBigInt`
@@ -694,6 +736,7 @@ See the [full API documentation](./src/decoders.ts) for all available decoders a
 - `decodeSymbol`
 
 ### Composite Decoders
+
 - `decodeArray`
 - `decodeVec`
 - `decodeOption`
@@ -702,6 +745,7 @@ See the [full API documentation](./src/decoders.ts) for all available decoders a
 - `decodeMap`
 
 ### Utility Decoders
+
 - `decodeWithDefault`
 - `decodeOneOf`
 - `decodeTransform`
@@ -710,12 +754,14 @@ See the [full API documentation](./src/decoders.ts) for all available decoders a
 - `decodeEnum`
 
 ### Soroban Decoders
+
 - `decodeU32`, `decodeU64`, `decodeU128`
 - `decodeI32`, `decodeI64`, `decodeI128`
 - `decodeBytesN`
 - `decodeVoid`
 
 ### Contract Decoders
+
 - `ContractDecoder.event()`
 - `ContractDecoder.ticketTier()`
 - `ContractDecoder.buyerPurchase()`

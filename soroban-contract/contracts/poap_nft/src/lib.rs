@@ -140,6 +140,10 @@ impl PoapNft {
     }
 
     pub fn token_uri(env: Env, token_id: u128) -> Result<String, Error> {
+        // STORAGE: pure read path. TTL is extended on the write side
+        // (`mint_poap`, `update_off_chain_uri`), so external reads do not
+        // bump rent. Earlier revisions called `extend_persistent_ttl` here,
+        // turning every `token_uri` query into a storage write.
         if !env.storage().persistent().has(&DataKey::Owner(token_id)) {
             return Err(Error::InvalidTokenId);
         }

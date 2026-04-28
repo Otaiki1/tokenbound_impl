@@ -12,23 +12,23 @@ export function isEventRecord(value: unknown): value is {
   ticketNftAddress: string;
   paymentToken: string;
 } {
-  if (typeof value !== 'object' || value === null) return false;
-  
+  if (typeof value !== "object" || value === null) return false;
+
   const obj = value as Record<string, unknown>;
-  
+
   return (
-    typeof obj.id === 'number' &&
-    typeof obj.theme === 'string' &&
-    typeof obj.organizer === 'string' &&
-    typeof obj.eventType === 'string' &&
-    typeof obj.totalTickets === 'bigint' &&
-    typeof obj.ticketsSold === 'bigint' &&
-    typeof obj.ticketPrice === 'bigint' &&
-    typeof obj.startDate === 'number' &&
-    typeof obj.endDate === 'number' &&
-    typeof obj.isCanceled === 'boolean' &&
-    typeof obj.ticketNftAddress === 'string' &&
-    typeof obj.paymentToken === 'string'
+    typeof obj.id === "number" &&
+    typeof obj.theme === "string" &&
+    typeof obj.organizer === "string" &&
+    typeof obj.eventType === "string" &&
+    typeof obj.totalTickets === "bigint" &&
+    typeof obj.ticketsSold === "bigint" &&
+    typeof obj.ticketPrice === "bigint" &&
+    typeof obj.startDate === "number" &&
+    typeof obj.endDate === "number" &&
+    typeof obj.isCanceled === "boolean" &&
+    typeof obj.ticketNftAddress === "string" &&
+    typeof obj.paymentToken === "string"
   );
 }
 
@@ -38,15 +38,15 @@ export function isTicketTier(value: unknown): value is {
   totalQuantity: bigint;
   soldQuantity: bigint;
 } {
-  if (typeof value !== 'object' || value === null) return false;
-  
+  if (typeof value !== "object" || value === null) return false;
+
   const obj = value as Record<string, unknown>;
-  
+
   return (
-    typeof obj.name === 'string' &&
-    typeof obj.price === 'bigint' &&
-    typeof obj.totalQuantity === 'bigint' &&
-    typeof obj.soldQuantity === 'bigint'
+    typeof obj.name === "string" &&
+    typeof obj.price === "bigint" &&
+    typeof obj.totalQuantity === "bigint" &&
+    typeof obj.soldQuantity === "bigint"
   );
 }
 
@@ -54,14 +54,11 @@ export function isBuyerPurchase(value: unknown): value is {
   quantity: bigint;
   totalPaid: bigint;
 } {
-  if (typeof value !== 'object' || value === null) return false;
-  
+  if (typeof value !== "object" || value === null) return false;
+
   const obj = value as Record<string, unknown>;
-  
-  return (
-    typeof obj.quantity === 'bigint' &&
-    typeof obj.totalPaid === 'bigint'
-  );
+
+  return typeof obj.quantity === "bigint" && typeof obj.totalPaid === "bigint";
 }
 
 export function assertEventRecord(value: unknown): asserts value is {
@@ -79,7 +76,7 @@ export function assertEventRecord(value: unknown): asserts value is {
   paymentToken: string;
 } {
   if (!isEventRecord(value)) {
-    throw new TypeError('Value is not a valid EventRecord');
+    throw new TypeError("Value is not a valid EventRecord");
   }
 }
 
@@ -90,7 +87,7 @@ export function assertTicketTier(value: unknown): asserts value is {
   soldQuantity: bigint;
 } {
   if (!isTicketTier(value)) {
-    throw new TypeError('Value is not a valid TicketTier');
+    throw new TypeError("Value is not a valid TicketTier");
   }
 }
 
@@ -99,18 +96,18 @@ export function assertBuyerPurchase(value: unknown): asserts value is {
   totalPaid: bigint;
 } {
   if (!isBuyerPurchase(value)) {
-    throw new TypeError('Value is not a valid BuyerPurchase');
+    throw new TypeError("Value is not a valid BuyerPurchase");
   }
 }
 
 export function assertArray<T>(
   value: unknown,
-  itemGuard: (item: unknown) => item is T
+  itemGuard: (item: unknown) => item is T,
 ): asserts value is T[] {
   if (!Array.isArray(value)) {
-    throw new TypeError('Value is not an array');
+    throw new TypeError("Value is not an array");
   }
-  
+
   for (let i = 0; i < value.length; i++) {
     if (!itemGuard(value[i])) {
       throw new TypeError(`Array item at index ${i} failed type guard`);

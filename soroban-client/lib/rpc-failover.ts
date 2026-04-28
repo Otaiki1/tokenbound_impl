@@ -85,7 +85,7 @@ export class RPCFailoverManager {
    * Get the best available endpoint based on health, priority, and response time
    */
   private getBestEndpoint(endpoints: RPCEndpoint[]): RPCEndpoint | null {
-    const healthyEndpoints = endpoints.filter(e => e.isHealthy);
+    const healthyEndpoints = endpoints.filter((e) => e.isHealthy);
 
     if (healthyEndpoints.length === 0) {
       return null;
@@ -127,8 +127,12 @@ export class RPCFailoverManager {
    */
   private async performHealthChecks(): Promise<void> {
     const checkPromises = [
-      ...this.horizonEndpoints.map(endpoint => this.checkHorizonHealth(endpoint)),
-      ...this.sorobanRpcEndpoints.map(endpoint => this.checkSorobanRpcHealth(endpoint)),
+      ...this.horizonEndpoints.map((endpoint) =>
+        this.checkHorizonHealth(endpoint),
+      ),
+      ...this.sorobanRpcEndpoints.map((endpoint) =>
+        this.checkSorobanRpcHealth(endpoint),
+      ),
     ];
 
     await Promise.allSettled(checkPromises);
@@ -143,7 +147,10 @@ export class RPCFailoverManager {
     try {
       const server = new Server(endpoint.url);
       const timeoutPromise = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error("Timeout")), this.config.healthCheckTimeout)
+        setTimeout(
+          () => reject(new Error("Timeout")),
+          this.config.healthCheckTimeout,
+        ),
       );
 
       // Try to get the latest ledger (lightweight health check)
@@ -156,9 +163,11 @@ export class RPCFailoverManager {
       endpoint.isHealthy = true;
       endpoint.consecutiveFailures = 0;
       endpoint.lastHealthCheck = Date.now();
-
     } catch (error) {
-      console.warn(`Horizon endpoint ${endpoint.url} health check failed:`, error);
+      console.warn(
+        `Horizon endpoint ${endpoint.url} health check failed:`,
+        error,
+      );
       endpoint.consecutiveFailures++;
       endpoint.lastHealthCheck = Date.now();
 
@@ -177,7 +186,10 @@ export class RPCFailoverManager {
     try {
       const rpc = new SorobanRpc.Server(endpoint.url);
       const timeoutPromise = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error("Timeout")), this.config.healthCheckTimeout)
+        setTimeout(
+          () => reject(new Error("Timeout")),
+          this.config.healthCheckTimeout,
+        ),
       );
 
       // Try to get network info (lightweight health check)
@@ -190,9 +202,11 @@ export class RPCFailoverManager {
       endpoint.isHealthy = true;
       endpoint.consecutiveFailures = 0;
       endpoint.lastHealthCheck = Date.now();
-
     } catch (error) {
-      console.warn(`Soroban RPC endpoint ${endpoint.url} health check failed:`, error);
+      console.warn(
+        `Soroban RPC endpoint ${endpoint.url} health check failed:`,
+        error,
+      );
       endpoint.consecutiveFailures++;
       endpoint.lastHealthCheck = Date.now();
 
@@ -228,7 +242,10 @@ export class RPCFailoverManager {
   /**
    * Add a new Horizon endpoint
    */
-  addHorizonEndpoint(url: string, priority: number = this.horizonEndpoints.length): void {
+  addHorizonEndpoint(
+    url: string,
+    priority: number = this.horizonEndpoints.length,
+  ): void {
     this.horizonEndpoints.push({
       url,
       priority,
@@ -242,7 +259,10 @@ export class RPCFailoverManager {
   /**
    * Add a new Soroban RPC endpoint
    */
-  addSorobanRpcEndpoint(url: string, priority: number = this.sorobanRpcEndpoints.length): void {
+  addSorobanRpcEndpoint(
+    url: string,
+    priority: number = this.sorobanRpcEndpoints.length,
+  ): void {
     this.sorobanRpcEndpoints.push({
       url,
       priority,
@@ -257,20 +277,22 @@ export class RPCFailoverManager {
    * Remove an endpoint by URL
    */
   removeEndpoint(url: string): void {
-    this.horizonEndpoints = this.horizonEndpoints.filter(e => e.url !== url);
-    this.sorobanRpcEndpoints = this.sorobanRpcEndpoints.filter(e => e.url !== url);
+    this.horizonEndpoints = this.horizonEndpoints.filter((e) => e.url !== url);
+    this.sorobanRpcEndpoints = this.sorobanRpcEndpoints.filter(
+      (e) => e.url !== url,
+    );
   }
 
   /**
    * Update endpoint priorities
    */
   updateEndpointPriority(url: string, newPriority: number): void {
-    const horizonEndpoint = this.horizonEndpoints.find(e => e.url === url);
+    const horizonEndpoint = this.horizonEndpoints.find((e) => e.url === url);
     if (horizonEndpoint) {
       horizonEndpoint.priority = newPriority;
     }
 
-    const rpcEndpoint = this.sorobanRpcEndpoints.find(e => e.url === url);
+    const rpcEndpoint = this.sorobanRpcEndpoints.find((e) => e.url === url);
     if (rpcEndpoint) {
       rpcEndpoint.priority = newPriority;
     }
@@ -311,7 +333,9 @@ export function getRPCManager(config?: Partial<RPCConfig>): RPCFailoverManager {
 /**
  * Initialize RPC manager with custom configuration
  */
-export function initializeRPCManager(config: Partial<RPCConfig>): RPCFailoverManager {
+export function initializeRPCManager(
+  config: Partial<RPCConfig>,
+): RPCFailoverManager {
   const finalConfig = { ...DEFAULT_RPC_CONFIG, ...config };
   rpcManager = new RPCFailoverManager(finalConfig);
   return rpcManager;

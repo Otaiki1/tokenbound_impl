@@ -45,7 +45,7 @@ export function startSpan(
   method: string,
   correlationId: string,
   attributes: TraceSpan["attributes"] = {},
-  onStart?: OnSpanStart
+  onStart?: OnSpanStart,
 ): TraceSpan {
   const span: TraceSpan = {
     spanId: generateId(),
@@ -73,7 +73,7 @@ export function endSpan(
   span: TraceSpan,
   success: boolean,
   error?: string,
-  onEnd?: OnSpanEnd
+  onEnd?: OnSpanEnd,
 ): TraceSpan {
   span.finishedAt = Date.now();
   span.durationMs = span.finishedAt - span.startedAt;
@@ -99,9 +99,16 @@ export async function withSpan<T>(
   attributes: TraceSpan["attributes"],
   onStart: OnSpanStart | undefined,
   onEnd: OnSpanEnd | undefined,
-  fn: (span: TraceSpan) => Promise<T>
+  fn: (span: TraceSpan) => Promise<T>,
 ): Promise<T> {
-  const span = startSpan(name, contract, method, correlationId, attributes, onStart);
+  const span = startSpan(
+    name,
+    contract,
+    method,
+    correlationId,
+    attributes,
+    onStart,
+  );
   try {
     const result = await fn(span);
     endSpan(span, true, undefined, onEnd);
