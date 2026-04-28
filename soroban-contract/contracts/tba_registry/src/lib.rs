@@ -159,7 +159,7 @@ impl TbaRegistry {
         let deployed_address = env
             .deployer()
             .with_current_contract(composite_salt)
-            .deploy(wasm_hash, constructor_args);
+            .deploy_v2(wasm_hash, constructor_args);
 
         // Initialize the deployed TBA account with NFT details
         let init_args = soroban_sdk::vec![

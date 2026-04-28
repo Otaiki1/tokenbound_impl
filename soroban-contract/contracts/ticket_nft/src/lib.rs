@@ -334,8 +334,8 @@ impl TicketNft {
             .set(&DataKey::Balance(to.clone()), &1u128);
 
         Self::extend_persistent_ttl(&env, &DataKey::Owner(token_id));
-        Self::extend_persistent_ttl(&env, &DataKey::Balance(from));
-        Self::extend_persistent_ttl(&env, &DataKey::Balance(to));
+        Self::extend_persistent_ttl(&env, &DataKey::Balance(from.clone()));
+        Self::extend_persistent_ttl(&env, &DataKey::Balance(to.clone()));
 
         env.events().publish(
             (Symbol::new(&env, "ticket_transferred"),),
@@ -359,7 +359,7 @@ impl TicketNft {
         env.storage()
             .persistent()
             .set(&DataKey::Balance(owner.clone()), &0u128);
-        Self::extend_persistent_ttl(&env, &DataKey::Balance(owner));
+        Self::extend_persistent_ttl(&env, &DataKey::Balance(owner.clone()));
 
         env.events().publish(
             (Symbol::new(&env, "ticket_burned"),),

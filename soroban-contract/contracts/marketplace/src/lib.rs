@@ -1,7 +1,7 @@
 #![no_std]
 
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, token, Address, BytesN, Env, Vec,
+    contract, contracterror, contractimpl, contracttype, token, Address, BytesN, Env, Symbol, Vec,
 };
 
 use upgradeable as upg;
@@ -253,7 +253,8 @@ impl MarketplaceContract {
         let token_client = token::Client::new(&env, &payment_token);
 
         // Check if royalty config exists and is active
-        let royalty_config = env.storage().persistent().get(&DataKey::RoyaltyConfig);
+        let royalty_config: Option<RoyaltyConfig> =
+            env.storage().persistent().get(&DataKey::RoyaltyConfig);
         let seller_receives = if let Some(ref config) = royalty_config {
             if config.active {
                 // Calculate and distribute royalties
@@ -523,6 +524,7 @@ impl MarketplaceContract {
             return Err(MarketplaceError::InvalidRoyaltyPercentage);
         }
 
+        let recipients_len = recipients.len();
         let config = RoyaltyConfig {
             recipients,
             total_percentage,
@@ -536,7 +538,7 @@ impl MarketplaceContract {
 
         env.events().publish(
             ("royalty_config_initialized",),
-            (total_percentage, recipients.len()),
+            (total_percentage, recipients_len),
         );
 
         Ok(())
@@ -581,6 +583,7 @@ impl MarketplaceContract {
             return Err(MarketplaceError::InvalidRoyaltyPercentage);
         }
 
+        let recipients_len = recipients.len();
         let config = RoyaltyConfig {
             recipients,
             total_percentage,
@@ -594,7 +597,7 @@ impl MarketplaceContract {
 
         env.events().publish(
             ("royalty_config_updated",),
-            (total_percentage, recipients.len()),
+            (total_percentage, recipients_len),
         );
 
         Ok(())
@@ -631,9 +634,12 @@ impl MarketplaceContract {
         }
 
         // Update the recipient at the specified index
-        let mut recipient = config.recipients.get(index);
+        let mut recipient = config
+            .recipients
+            .get(index)
+            .ok_or(MarketplaceError::RoyaltyConfigNotFound)?;
         recipient.recipient = new_recipient.clone();
-        config.recipients.set(index, &recipient);
+        config.recipients.set(index, recipient);
 
         env.storage()
             .persistent()
@@ -679,7 +685,11 @@ impl MarketplaceContract {
         }
 
         // Calculate total without the old percentage at index
-        let old_percentage = config.recipients.get(index).percentage;
+        let mut recipient = config
+            .recipients
+            .get(index)
+            .ok_or(MarketplaceError::RoyaltyConfigNotFound)?;
+        let old_percentage = recipient.percentage;
         let mut new_total = config
             .total_percentage
             .checked_sub(old_percentage)
@@ -695,9 +705,8 @@ impl MarketplaceContract {
         }
 
         // Update the percentage at the specified index
-        let mut recipient = config.recipients.get(index);
         recipient.percentage = new_percentage;
-        config.recipients.set(index, &recipient);
+        config.recipients.set(index, recipient);
         config.total_percentage = new_total;
 
         env.storage()
