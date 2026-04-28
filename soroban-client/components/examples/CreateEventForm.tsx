@@ -1,27 +1,27 @@
 "use client";
 
-import { useSoroban } from '@/contexts/SorobanContext';
-import { useCreateEvent } from '@/hooks/useEventManager';
-import { useWallet } from '@/contexts/WalletContext';
-import type { CreateEventInput } from '../../sdk/src/types';
-import { useState } from 'react';
+import { useSoroban } from "@/contexts/SorobanContext";
+import { useCreateEvent } from "@/hooks/useEventManager";
+import { useWallet } from "@/contexts/WalletContext";
+import type { CreateEventInput } from "../../sdk/src/types";
+import { useState } from "react";
 
 export function CreateEventForm() {
   const { sdk } = useSoroban();
   const { address, signTransaction } = useWallet();
 
   const [formData, setFormData] = useState({
-    theme: '',
-    eventType: '',
-    startDate: '',
-    endDate: '',
-    ticketPrice: '',
-    totalTickets: '',
-    paymentToken: '',
+    theme: "",
+    eventType: "",
+    startDate: "",
+    endDate: "",
+    ticketPrice: "",
+    totalTickets: "",
+    paymentToken: "",
   });
 
   const eventInput: CreateEventInput = {
-    organizer: address || '',
+    organizer: address || "",
     theme: formData.theme,
     eventType: formData.eventType,
     startDate: new Date(formData.startDate).getTime() / 1000,
@@ -36,20 +36,20 @@ export function CreateEventForm() {
     eventInput,
     {
       signTransaction: signTransaction || (async (xdr) => xdr),
-    }
+    },
   );
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!address) {
-      alert('Please connect your wallet first');
+      alert("Please connect your wallet first");
       return;
     }
     await write();
   };
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setFormData(prev => ({
+    setFormData((prev) => ({
       ...prev,
       [e.target.name]: e.target.value,
     }));
@@ -58,7 +58,9 @@ export function CreateEventForm() {
   if (isSuccess) {
     return (
       <div className="bg-green-50 border border-green-200 rounded-lg p-6">
-        <h3 className="text-green-800 font-semibold mb-2">Event Created Successfully!</h3>
+        <h3 className="text-green-800 font-semibold mb-2">
+          Event Created Successfully!
+        </h3>
         <button
           onClick={reset}
           className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700"
@@ -141,7 +143,9 @@ export function CreateEventForm() {
         </div>
 
         <div>
-          <label className="block text-sm font-medium mb-1">Total Tickets</label>
+          <label className="block text-sm font-medium mb-1">
+            Total Tickets
+          </label>
           <input
             type="number"
             name="totalTickets"
@@ -156,7 +160,9 @@ export function CreateEventForm() {
       </div>
 
       <div>
-        <label className="block text-sm font-medium mb-1">Payment Token Address</label>
+        <label className="block text-sm font-medium mb-1">
+          Payment Token Address
+        </label>
         <input
           type="text"
           name="paymentToken"
@@ -179,7 +185,7 @@ export function CreateEventForm() {
         disabled={loading || !address}
         className="w-full px-4 py-3 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
       >
-        {loading ? 'Creating Event...' : 'Create Event'}
+        {loading ? "Creating Event..." : "Create Event"}
       </button>
 
       {!address && (

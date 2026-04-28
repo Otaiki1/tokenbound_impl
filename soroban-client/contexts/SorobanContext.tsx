@@ -1,9 +1,9 @@
 "use client";
 
-import { createContext, useContext, useMemo, ReactNode } from 'react';
-import { createTokenboundSdk } from '../sdk/src';
-import type { TokenboundSdk } from '../sdk/src';
-import type { TokenboundSdkConfig } from '../sdk/src/types';
+import { createContext, useContext, useMemo, ReactNode } from "react";
+import { createTokenboundSdk } from "../sdk/src";
+import type { TokenboundSdk } from "../sdk/src";
+import type { TokenboundSdkConfig } from "../sdk/src/types";
 
 interface SorobanContextValue {
   sdk: TokenboundSdk | null;
@@ -20,7 +20,7 @@ const SorobanContext = createContext<SorobanContextValue>({
 export function useSoroban() {
   const context = useContext(SorobanContext);
   if (!context) {
-    throw new Error('useSoroban must be used within SorobanProvider');
+    throw new Error("useSoroban must be used within SorobanProvider");
   }
   return context;
 }
@@ -35,7 +35,7 @@ export function SorobanProvider({ children, config }: SorobanProviderProps) {
     try {
       return createTokenboundSdk(config);
     } catch (error) {
-      console.error('Failed to create Soroban SDK:', error);
+      console.error("Failed to create Soroban SDK:", error);
       return null;
     }
   }, [config]);
@@ -46,12 +46,10 @@ export function SorobanProvider({ children, config }: SorobanProviderProps) {
       config,
       isReady: sdk !== null,
     }),
-    [sdk, config]
+    [sdk, config],
   );
 
   return (
-    <SorobanContext.Provider value={value}>
-      {children}
-    </SorobanContext.Provider>
+    <SorobanContext.Provider value={value}>{children}</SorobanContext.Provider>
   );
 }

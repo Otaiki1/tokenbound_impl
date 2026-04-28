@@ -1,11 +1,16 @@
 "use client";
 
-import { useSoroban } from '@/contexts/SorobanContext';
-import { useGetAllEvents } from '@/hooks/useEventManager';
+import { useSoroban } from "@/contexts/SorobanContext";
+import { useGetAllEvents } from "@/hooks/useEventManager";
 
 export function EventList() {
   const { sdk } = useSoroban();
-  const { data: events, loading, error, refetch } = useGetAllEvents(sdk, {
+  const {
+    data: events,
+    loading,
+    error,
+    refetch,
+  } = useGetAllEvents(sdk, {
     enabled: true,
     refetchInterval: 30000,
   });
@@ -34,11 +39,7 @@ export function EventList() {
   }
 
   if (!events || events.length === 0) {
-    return (
-      <div className="text-center p-8 text-gray-500">
-        No events found
-      </div>
-    );
+    return <div className="text-center p-8 text-gray-500">No events found</div>;
   }
 
   return (
@@ -64,7 +65,8 @@ export function EventList() {
               <p>Type: {event.eventType}</p>
               <p>Price: {event.ticketPrice.toString()} tokens</p>
               <p>
-                Tickets: {event.ticketsSold.toString()} / {event.totalTickets.toString()}
+                Tickets: {event.ticketsSold.toString()} /{" "}
+                {event.totalTickets.toString()}
               </p>
               <p>
                 Date: {new Date(event.startDate * 1000).toLocaleDateString()}

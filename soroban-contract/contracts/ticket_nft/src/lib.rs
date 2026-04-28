@@ -167,12 +167,13 @@ impl TicketNft {
             return Err(Error::InvalidTokenId);
         }
 
+        // STORAGE: read-only path. TTL is extended on the write side
+        // (`update_off_chain_uri`), so reads do not bump rent.
         if let Some(off_chain) = env
             .storage()
             .persistent()
             .get::<_, OffChainMetadata>(&DataKey::OffChain(token_id))
         {
-            Self::extend_persistent_ttl(&env, &DataKey::OffChain(token_id));
             return Ok(off_chain.uri);
         }
 
@@ -184,13 +185,12 @@ impl TicketNft {
             return Err(Error::InvalidTokenId);
         }
 
-        let metadata: TicketMetadata = env
-            .storage()
+        // STORAGE: read-only path. TTL extension lives on `mint_ticket_nft` /
+        // `update_metadata` so external reads no longer turn into writes.
+        env.storage()
             .persistent()
             .get(&DataKey::Metadata(token_id))
-            .ok_or(Error::MetadataNotFound)?;
-        Self::extend_persistent_ttl(&env, &DataKey::Metadata(token_id));
-        Ok(metadata)
+            .ok_or(Error::MetadataNotFound)
     }
 
     pub fn update_metadata(
@@ -286,12 +286,14 @@ impl TicketNft {
     }
 
     pub fn owner_of(env: Env, token_id: u128) -> Result<Address, Error> {
+        // STORAGE: read-only path. TTL is extended on writes (mint, transfer,
+        // burn) where the entry actually changes, so external `owner_of`
+        // queries no longer pay storage rent.
         let owner = env
             .storage()
             .persistent()
             .get(&DataKey::Owner(token_id))
             .ok_or(Error::InvalidTokenId)?;
-        Self::extend_persistent_ttl(&env, &DataKey::Owner(token_id));
         Ok(owner)
     }
 
@@ -334,8 +336,8 @@ impl TicketNft {
             .set(&DataKey::Balance(to.clone()), &1u128);
 
         Self::extend_persistent_ttl(&env, &DataKey::Owner(token_id));
-        Self::extend_persistent_ttl(&env, &DataKey::Balance(from));
-        Self::extend_persistent_ttl(&env, &DataKey::Balance(to));
+        Self::extend_persistent_ttl(&env, &DataKey::Balance(from.clone()));
+        Self::extend_persistent_ttl(&env, &DataKey::Balance(to.clone()));
 
         env.events().publish(
             (Symbol::new(&env, "ticket_transferred"),),
@@ -356,10 +358,12 @@ impl TicketNft {
         env.storage()
             .persistent()
             .remove(&DataKey::OffChain(token_id));
+        // STORAGE: remove the now-zero Balance entry rather than writing
+        // `0u128`. `balance_of` already returns 0 via `unwrap_or(0)` when
+        // the entry is absent, so this saves rent on a no-information slot.
         env.storage()
             .persistent()
-            .set(&DataKey::Balance(owner.clone()), &0u128);
-        Self::extend_persistent_ttl(&env, &DataKey::Balance(owner));
+            .remove(&DataKey::Balance(owner.clone()));
 
         env.events().publish(
             (Symbol::new(&env, "ticket_burned"),),

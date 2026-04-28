@@ -9,14 +9,19 @@ const { Server, TransactionBuilder, Operation, SorobanRpc } = StellarSdk;
 import { Networks } from "@stellar/stellar-sdk";
 
 // Import RPC failover manager
-import { getRPCManager, initializeRPCManager, DEFAULT_RPC_CONFIG } from "./rpc-failover";
+import {
+  getRPCManager,
+  initializeRPCManager,
+  DEFAULT_RPC_CONFIG,
+} from "./rpc-failover";
 
 // Configuration helpers – prefer environment variables so they can be swapped
 // for different networks (testnet / preview / mainnet) without changing code.
 const HORIZON_URL =
   process.env.NEXT_PUBLIC_HORIZON_URL || "https://horizon-testnet.stellar.org";
 const SOROBAN_RPC_URL =
-  process.env.NEXT_PUBLIC_SOROBAN_RPC_URL || "https://soroban-testnet.stellar.org";
+  process.env.NEXT_PUBLIC_SOROBAN_RPC_URL ||
+  "https://soroban-testnet.stellar.org";
 const NETWORK_PASSPHRASE =
   process.env.NEXT_PUBLIC_NETWORK_PASSPHRASE || Networks.TESTNET;
 const READ_ONLY_ACCOUNT =
@@ -31,8 +36,12 @@ const MARKETPLACE_CONTRACT =
 
 // Initialize RPC manager with environment-based configuration
 const rpcManager = initializeRPCManager({
-  horizonUrls: HORIZON_URL.split(',').map(url => url.trim()).filter(url => url),
-  sorobanRpcUrls: SOROBAN_RPC_URL.split(',').map(url => url.trim()).filter(url => url),
+  horizonUrls: HORIZON_URL.split(",")
+    .map((url) => url.trim())
+    .filter((url) => url),
+  sorobanRpcUrls: SOROBAN_RPC_URL.split(",")
+    .map((url) => url.trim())
+    .filter((url) => url),
 });
 
 export interface CreateEventParams {
@@ -48,7 +57,7 @@ export interface CreateEventParams {
 
 export type SignTransactionFn = (
   txXdr: string,
-  options: { networkPassphrase: string; address: string }
+  options: { networkPassphrase: string; address: string },
 ) => Promise<string>;
 
 export interface BuyTicketsParams {
@@ -108,11 +117,11 @@ export function isMarketplaceConfigured() {
  */
 export async function createEvent(
   params: CreateEventParams,
-  signTransactionFn: SignTransactionFn
+  signTransactionFn: SignTransactionFn,
 ) {
   if (!isEventManagerConfigured()) {
     throw new Error(
-      "EVENT_MANAGER_CONTRACT is not configured. Set NEXT_PUBLIC_EVENT_MANAGER_CONTRACT in your env."
+      "EVENT_MANAGER_CONTRACT is not configured. Set NEXT_PUBLIC_EVENT_MANAGER_CONTRACT in your env.",
     );
   }
 
@@ -165,11 +174,11 @@ export async function createEvent(
 
 export async function buyTickets(
   params: BuyTicketsParams,
-  signTransactionFn: SignTransactionFn
+  signTransactionFn: SignTransactionFn,
 ) {
   if (!isEventManagerConfigured()) {
     throw new Error(
-      "EVENT_MANAGER_CONTRACT is not configured. Set NEXT_PUBLIC_EVENT_MANAGER_CONTRACT in your env."
+      "EVENT_MANAGER_CONTRACT is not configured. Set NEXT_PUBLIC_EVENT_MANAGER_CONTRACT in your env.",
     );
   }
 
@@ -210,7 +219,7 @@ export async function buyTickets(
 async function simulateAndInvoke(
   caller: string,
   functionName: string,
-  args: ReturnType<typeof nativeToScVal>[]
+  args: ReturnType<typeof nativeToScVal>[],
 ) {
   const rpc = await getRPCManager().getSorobanRpcServer();
   const server = await getRPCManager().getHorizonServer();
@@ -252,8 +261,12 @@ export async function getAllEvents(): Promise<Event[]> {
   });
 
   const tx = new TransactionBuilder(
-    { accountId: () => READ_ONLY_ACCOUNT, sequenceNumber: () => "0", incrementSequenceNumber: () => {} } as any,
-    { fee: "100", networkPassphrase: NETWORK_PASSPHRASE }
+    {
+      accountId: () => EVENT_MANAGER_CONTRACT,
+      sequenceNumber: () => "0",
+      incrementSequenceNumber: () => {},
+    } as any,
+    { fee: "100", networkPassphrase: NETWORK_PASSPHRASE },
   )
     .addOperation(operation)
     .setTimeout(30)
@@ -285,17 +298,27 @@ export async function getAllEvents(): Promise<Event[]> {
 }
 
 /** Cancel an event. Caller must be the organizer. */
-export async function cancelEvent(organizer: string, eventId: number, signTransactionFn: SignTransactionFn) {
+export async function cancelEvent(
+  organizer: string,
+  eventId: number,
+  signTransactionFn: SignTransactionFn,
+) {
   return simulateAndInvoke(organizer, "cancel_event", [
     nativeToScVal(eventId, { type: "u32" }),
   ]);
 }
 
 /** Update event details. Caller must be the organizer. */
-export async function updateEvent(params: UpdateEventParams, signTransactionFn: SignTransactionFn) {
+export async function updateEvent(
+  params: UpdateEventParams,
+  signTransactionFn: SignTransactionFn,
+) {
   const toOption = (val: any, type: string) =>
     val !== undefined
-      ? nativeToScVal({ Some: nativeToScVal(val, { type }) }, { type: "option" })
+      ? nativeToScVal(
+          { Some: nativeToScVal(val, { type }) },
+          { type: "option" },
+        )
       : nativeToScVal(null, { type: "option" });
 
   return simulateAndInvoke(params.organizer, "update_event", [
@@ -309,14 +332,21 @@ export async function updateEvent(params: UpdateEventParams, signTransactionFn: 
 }
 
 /** Claim funds after event completion. Caller must be the organizer. */
-export async function claimFunds(organizer: string, eventId: number, signTransactionFn: SignTransactionFn) {
+export async function claimFunds(
+  organizer: string,
+  eventId: number,
+  signTransactionFn: SignTransactionFn,
+) {
   return simulateAndInvoke(organizer, "withdraw_funds", [
     nativeToScVal(eventId, { type: "u32" }),
   ]);
 }
 
 /** Get attendees (buyers) for an event. */
-export async function getEventAttendees(eventId: number, readerAccount: string): Promise<string[]> {
+export async function getEventAttendees(
+  eventId: number,
+  readerAccount: string,
+): Promise<string[]> {
   const rpc = await getRPCManager().getSorobanRpcServer();
 
   const operation = Operation.invokeContractFunction({
@@ -326,8 +356,12 @@ export async function getEventAttendees(eventId: number, readerAccount: string):
   });
 
   const tx = new TransactionBuilder(
-    { accountId: () => readerAccount, sequenceNumber: () => "0", incrementSequenceNumber: () => {} } as any,
-    { fee: "100", networkPassphrase: NETWORK_PASSPHRASE }
+    {
+      accountId: () => readerAccount,
+      sequenceNumber: () => "0",
+      incrementSequenceNumber: () => {},
+    } as any,
+    { fee: "100", networkPassphrase: NETWORK_PASSPHRASE },
   )
     .addOperation(operation)
     .setTimeout(30)
@@ -343,7 +377,10 @@ export async function getEventAttendees(eventId: number, readerAccount: string):
 }
 
 /** Get balance of a user in a specific NFT contract. */
-export async function getBalance(contractId: string, address: string): Promise<bigint> {
+export async function getBalance(
+  contractId: string,
+  address: string,
+): Promise<bigint> {
   const rpc = await getRPCManager().getSorobanRpcServer();
 
   const operation = Operation.invokeContractFunction({
@@ -353,8 +390,12 @@ export async function getBalance(contractId: string, address: string): Promise<b
   });
 
   const tx = new TransactionBuilder(
-    { accountId: () => address, sequenceNumber: () => "0", incrementSequenceNumber: () => {} } as any,
-    { fee: "100", networkPassphrase: NETWORK_PASSPHRASE }
+    {
+      accountId: () => address,
+      sequenceNumber: () => "0",
+      incrementSequenceNumber: () => {},
+    } as any,
+    { fee: "100", networkPassphrase: NETWORK_PASSPHRASE },
   )
     .addOperation(operation)
     .setTimeout(30)
@@ -373,7 +414,7 @@ export async function getBalance(contractId: string, address: string): Promise<b
 export async function getUserTickets(address: string): Promise<Event[]> {
   const allEvents = await getAllEvents();
   const results: Event[] = [];
-  
+
   for (const event of allEvents) {
     if (!event.ticket_nft_addr || event.ticket_nft_addr === "") continue;
     try {
@@ -389,7 +430,10 @@ export async function getUserTickets(address: string): Promise<Event[]> {
 }
 
 /** Get token ID for a user. */
-export async function getTokenId(contractId: string, address: string): Promise<bigint> {
+export async function getTokenId(
+  contractId: string,
+  address: string,
+): Promise<bigint> {
   const rpc = await getRPCManager().getSorobanRpcServer();
 
   const operation = Operation.invokeContractFunction({
@@ -399,8 +443,12 @@ export async function getTokenId(contractId: string, address: string): Promise<b
   });
 
   const tx = new TransactionBuilder(
-    { accountId: () => address, sequenceNumber: () => "0", incrementSequenceNumber: () => {} } as any,
-    { fee: "100", networkPassphrase: NETWORK_PASSPHRASE }
+    {
+      accountId: () => address,
+      sequenceNumber: () => "0",
+      incrementSequenceNumber: () => {},
+    } as any,
+    { fee: "100", networkPassphrase: NETWORK_PASSPHRASE },
   )
     .addOperation(operation)
     .setTimeout(30)
@@ -420,11 +468,11 @@ export async function getTokenId(contractId: string, address: string): Promise<b
 /** Create a listing on the marketplace. */
 export async function createListing(
   params: CreateListingParams,
-  signTransactionFn: SignTransactionFn
+  signTransactionFn: SignTransactionFn,
 ) {
   if (!isMarketplaceConfigured()) {
     throw new Error(
-      "MARKETPLACE_CONTRACT is not configured. Set NEXT_PUBLIC_MARKETPLACE_CONTRACT in your env."
+      "MARKETPLACE_CONTRACT is not configured. Set NEXT_PUBLIC_MARKETPLACE_CONTRACT in your env.",
     );
   }
 
@@ -465,11 +513,11 @@ export async function createListing(
 /** Buy a listing from the marketplace. */
 export async function buyListing(
   params: BuyListingParams,
-  signTransactionFn: SignTransactionFn
+  signTransactionFn: SignTransactionFn,
 ) {
   if (!isMarketplaceConfigured()) {
     throw new Error(
-      "MARKETPLACE_CONTRACT is not configured. Set NEXT_PUBLIC_MARKETPLACE_CONTRACT in your env."
+      "MARKETPLACE_CONTRACT is not configured. Set NEXT_PUBLIC_MARKETPLACE_CONTRACT in your env.",
     );
   }
 
@@ -518,8 +566,12 @@ export async function getActiveListings(): Promise<any[]> {
   });
 
   const tx = new TransactionBuilder(
-    { accountId: () => READ_ONLY_ACCOUNT, sequenceNumber: () => "0", incrementSequenceNumber: () => {} } as any,
-    { fee: "100", networkPassphrase: NETWORK_PASSPHRASE }
+    {
+      accountId: () => MARKETPLACE_CONTRACT,
+      sequenceNumber: () => "0",
+      incrementSequenceNumber: () => {},
+    } as any,
+    { fee: "100", networkPassphrase: NETWORK_PASSPHRASE },
   )
     .addOperation(operation)
     .setTimeout(30)

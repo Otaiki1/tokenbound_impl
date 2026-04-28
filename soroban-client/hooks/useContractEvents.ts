@@ -27,7 +27,7 @@ export function useContractEvents(
     limit?: number;
     offset?: number;
     realtime?: boolean; // default true
-  } = {}
+  } = {},
 ): UseContractEventsResult {
   const { realtime = true, ...queryParams } = params;
 
@@ -90,9 +90,9 @@ export function useContractEvents(
 
     const connectSSE = () => {
       // Build URL with cursor for reconnection
-      const streamUrl = cursorRef.current 
+      const streamUrl = cursorRef.current
         ? `/api/events/stream?cursor=${encodeURIComponent(cursorRef.current)}`
-        : '/api/events/stream';
+        : "/api/events/stream";
 
       const es = new EventSource(streamUrl);
       esRef.current = es;
@@ -103,7 +103,7 @@ export function useContractEvents(
             events: IndexedEvent[];
             type: "snapshot" | "update";
           };
-          
+
           if (payload.type === "snapshot") {
             setEvents(payload.events);
             setTotal(payload.events.length);
@@ -111,17 +111,19 @@ export function useContractEvents(
             // Re-fetch with current filters to get accurate filtered results
             void fetchEvents();
           }
-          
+
           // Update cursor from event ID
           if (payload.events.length > 0) {
             const lastEvent = payload.events[payload.events.length - 1];
             cursorRef.current = `${lastEvent.ledger}-0-0-0`;
           }
-          
+
           // Reset reconnect attempts on successful connection
           reconnectAttemptsRef.current = 0;
           reconnectDelayRef.current = 1000;
-        } catch { /* ignore parse errors */ }
+        } catch {
+          /* ignore parse errors */
+        }
       });
 
       // Handle reconnection/replay events
@@ -132,26 +134,30 @@ export function useContractEvents(
             type: "replay";
             cursor: string;
           };
-          
+
           if (payload.type === "replay" && payload.events.length > 0) {
             // Merge replayed events with existing events
             setEvents((prev: IndexedEvent[]) => {
               const existingIds = new Set(prev.map((e: IndexedEvent) => e.id));
-              const newEvents = payload.events.filter((e: IndexedEvent) => !existingIds.has(e.id));
+              const newEvents = payload.events.filter(
+                (e: IndexedEvent) => !existingIds.has(e.id),
+              );
               return [...prev, ...newEvents];
             });
             void fetchEvents();
           }
-          
+
           // Update cursor
           if (payload.cursor) {
             cursorRef.current = payload.cursor;
           }
-          
+
           // Reset reconnect attempts
           reconnectAttemptsRef.current = 0;
           reconnectDelayRef.current = 1000;
-        } catch { /* ignore parse errors */ }
+        } catch {
+          /* ignore parse errors */
+        }
       });
 
       es.addEventListener("heartbeat", () => {
@@ -160,23 +166,31 @@ export function useContractEvents(
 
       es.onerror = () => {
         // Connection dropped - will attempt to reconnect with cursor
-        console.warn('SSE connection dropped, will reconnect with cursor:', cursorRef.current);
-        
+        console.warn(
+          "SSE connection dropped, will reconnect with cursor:",
+          cursorRef.current,
+        );
+
         // Close the current connection
         es.close();
         esRef.current = null;
-        
+
         // Implement exponential backoff for reconnection
         if (reconnectAttemptsRef.current < maxReconnectAttempts) {
           const delay = reconnectDelayRef.current;
           reconnectAttemptsRef.current++;
           // Exponential backoff: double the delay each time, max 30s
-          reconnectDelayRef.current = Math.min(reconnectDelayRef.current * 2, 30000);
-          
-          console.log(`Reconnecting in ${delay}ms (attempt ${reconnectAttemptsRef.current}/${maxReconnectAttempts})`);
+          reconnectDelayRef.current = Math.min(
+            reconnectDelayRef.current * 2,
+            30000,
+          );
+
+          console.log(
+            `Reconnecting in ${delay}ms (attempt ${reconnectAttemptsRef.current}/${maxReconnectAttempts})`,
+          );
           setTimeout(connectSSE, delay);
         } else {
-          setError('Failed to maintain connection after maximum retries');
+          setError("Failed to maintain connection after maximum retries");
         }
       };
     };

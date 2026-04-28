@@ -1,7 +1,7 @@
 #![no_std]
 
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, token, Address, BytesN, Env, Vec,
+    contract, contracterror, contractimpl, contracttype, token, Address, BytesN, Env, Symbol, Vec,
 };
 
 use upgradeable as upg;
@@ -69,15 +69,31 @@ pub struct RoyaltyConfig {
     pub active: bool,
 }
 
+// STORAGE: pack the three frequently-read singleton counters into one packed
+// instance entry. Before: 3 separate persistent keys (TotalListings,
+// TotalSales, MaxListingsPerUser), each paying its own rent and TTL bumps on
+// every listing/purchase. After: 1 instance entry that rides the contract
+// instance TTL and is read/written once per state-mutating call.
+#[derive(Clone)]
+#[contracttype]
+pub struct MarketStats {
+    pub total_listings: u32,
+    pub total_sales: u32,
+    pub max_listings_per_user: u32,
+}
+
+// STORAGE: per-listing / per-sale records stay `persistent` (long-lived,
+// per-id history). Singleton config — Stats, PriceCap, Admin,
+// MaxRoyaltyRecipients — moves to `instance` (cheapest hot config tier).
+// RoyaltyConfig stays `persistent` for now: it can be large (recipient list)
+// and is updated infrequently, so instance bloat would penalise every read.
 #[contracttype]
 pub enum DataKey {
     Listing(u32),
     Sale(u32),
-    TotalListings,
-    TotalSales,
+    Stats,
     PriceCap,
     Admin,
-    MaxListingsPerUser,
     RoyaltyConfig,
     MaxRoyaltyRecipients,
 }
@@ -125,26 +141,21 @@ impl MarketplaceContract {
             active: true,
         };
 
+        // STORAGE: write singleton config to `instance` (rides the contract
+        // instance TTL; one extension call covers them all). Pack the three
+        // counters into a single `MarketStats` entry — was 3 persistent keys.
+        let stats = MarketStats {
+            total_listings: 0,
+            total_sales: 0,
+            max_listings_per_user: 10,
+        };
+        env.storage().instance().set(&DataKey::PriceCap, &price_cap);
+        env.storage().instance().set(&DataKey::Admin, &admin);
+        env.storage().instance().set(&DataKey::Stats, &stats);
         env.storage()
-            .persistent()
-            .set(&DataKey::PriceCap, &price_cap);
-        env.storage().persistent().set(&DataKey::Admin, &admin);
-        env.storage()
-            .persistent()
-            .set(&DataKey::TotalListings, &0u32);
-        env.storage().persistent().set(&DataKey::TotalSales, &0u32);
-        env.storage()
-            .persistent()
-            .set(&DataKey::MaxListingsPerUser, &10u32);
-        env.storage()
-            .persistent()
-            .set(&DataKey::MaxRoyaltyRecipients, &10u32); // Max 10 royalty recipients
-        Self::extend_persistent_ttl(&env, &DataKey::PriceCap);
-        Self::extend_persistent_ttl(&env, &DataKey::Admin);
-        Self::extend_persistent_ttl(&env, &DataKey::TotalListings);
-        Self::extend_persistent_ttl(&env, &DataKey::TotalSales);
-        Self::extend_persistent_ttl(&env, &DataKey::MaxListingsPerUser);
-        Self::extend_persistent_ttl(&env, &DataKey::MaxRoyaltyRecipients);
+            .instance()
+            .set(&DataKey::MaxRoyaltyRecipients, &10u32);
+        upg::extend_instance_ttl(&env);
     }
 
     pub fn create_listing(
@@ -164,10 +175,10 @@ impl MarketplaceContract {
             panic!("Seller does not own any tickets from this contract");
         }
 
-        // Check price cap
+        // STORAGE: PriceCap and Stats live in `instance` storage — cheap reads.
         let price_cap: PriceCap = env
             .storage()
-            .persistent()
+            .instance()
             .get(&DataKey::PriceCap)
             .expect("Price cap not set");
 
@@ -175,12 +186,12 @@ impl MarketplaceContract {
             panic!("Price must be positive");
         }
 
-        let total_listings: u32 = env
+        let mut stats: MarketStats = env
             .storage()
-            .persistent()
-            .get(&DataKey::TotalListings)
-            .unwrap();
-        let listing_id = total_listings;
+            .instance()
+            .get(&DataKey::Stats)
+            .expect("market stats not initialized");
+        let listing_id = stats.total_listings;
 
         let listing = Listing {
             seller: seller.clone(),
@@ -194,12 +205,10 @@ impl MarketplaceContract {
         env.storage()
             .persistent()
             .set(&DataKey::Listing(listing_id), &listing);
-        env.storage().persistent().set(
-            &DataKey::TotalListings,
-            &(listing_id.checked_add(1).unwrap()),
-        );
+        stats.total_listings = stats.total_listings.checked_add(1).unwrap();
+        env.storage().instance().set(&DataKey::Stats, &stats);
         Self::extend_persistent_ttl(&env, &DataKey::Listing(listing_id));
-        Self::extend_persistent_ttl(&env, &DataKey::TotalListings);
+        upg::extend_instance_ttl(&env);
 
         let event = ListingCreatedEvent {
             contract_address: env.current_contract_address(),
@@ -240,10 +249,12 @@ impl MarketplaceContract {
             return Err(MarketplaceError::CannotPurchaseOwnListing);
         }
 
-        // Use the payment token (in this case, using the admin address as a placeholder for XLM)
+        // STORAGE: Admin moved to `instance` storage (singleton config).
+        // The legacy "admin doubles as payment token" semantics are preserved
+        // verbatim — only the storage tier changed.
         let payment_token = match env
             .storage()
-            .persistent()
+            .instance()
             .get::<_, Address>(&DataKey::Admin)
         {
             Some(addr) => addr,
@@ -253,7 +264,8 @@ impl MarketplaceContract {
         let token_client = token::Client::new(&env, &payment_token);
 
         // Check if royalty config exists and is active
-        let royalty_config = env.storage().persistent().get(&DataKey::RoyaltyConfig);
+        let royalty_config: Option<RoyaltyConfig> =
+            env.storage().persistent().get(&DataKey::RoyaltyConfig);
         let seller_receives = if let Some(ref config) = royalty_config {
             if config.active {
                 // Calculate and distribute royalties
@@ -319,12 +331,13 @@ impl MarketplaceContract {
             .set(&DataKey::Listing(listing_id), &updated_listing);
         Self::extend_persistent_ttl(&env, &DataKey::Listing(listing_id));
 
-        // Record sale
-        let total_sales: u32 = env
+        // STORAGE: read packed Stats once, increment sales counter, write back.
+        let mut stats: MarketStats = env
             .storage()
-            .persistent()
-            .get(&DataKey::TotalSales)
-            .unwrap_or(0);
+            .instance()
+            .get(&DataKey::Stats)
+            .expect("market stats not initialized");
+        let total_sales = stats.total_sales;
         let sale = Sale {
             buyer: buyer.clone(),
             seller: listing.seller.clone(),
@@ -337,11 +350,10 @@ impl MarketplaceContract {
         env.storage()
             .persistent()
             .set(&DataKey::Sale(total_sales), &sale);
-        env.storage()
-            .persistent()
-            .set(&DataKey::TotalSales, &(total_sales.checked_add(1).unwrap()));
+        stats.total_sales = stats.total_sales.checked_add(1).unwrap();
+        env.storage().instance().set(&DataKey::Stats, &stats);
         Self::extend_persistent_ttl(&env, &DataKey::Sale(total_sales));
-        Self::extend_persistent_ttl(&env, &DataKey::TotalSales);
+        upg::extend_instance_ttl(&env);
 
         let event = PurchaseCompletedEvent {
             contract_address: env.current_contract_address(),
@@ -398,9 +410,10 @@ impl MarketplaceContract {
     pub fn get_active_listings(env: Env, start: u32, limit: u32) -> Vec<Listing> {
         let total_listings: u32 = env
             .storage()
-            .persistent()
-            .get(&DataKey::TotalListings)
-            .unwrap();
+            .instance()
+            .get::<_, MarketStats>(&DataKey::Stats)
+            .map(|s| s.total_listings)
+            .unwrap_or(0);
         let mut active_listings = Vec::new(&env);
 
         let end = (start + limit).min(total_listings);
@@ -422,9 +435,10 @@ impl MarketplaceContract {
     pub fn get_seller_listings(env: Env, seller: Address, active_only: bool) -> Vec<Listing> {
         let total_listings: u32 = env
             .storage()
-            .persistent()
-            .get(&DataKey::TotalListings)
-            .unwrap();
+            .instance()
+            .get::<_, MarketStats>(&DataKey::Stats)
+            .map(|s| s.total_listings)
+            .unwrap_or(0);
         let mut seller_listings = Vec::new(&env);
 
         for i in 0..total_listings {
@@ -445,8 +459,9 @@ impl MarketplaceContract {
     pub fn get_user_transactions(env: Env, user: Address) -> Vec<Sale> {
         let total_sales: u32 = env
             .storage()
-            .persistent()
-            .get(&DataKey::TotalSales)
+            .instance()
+            .get::<_, MarketStats>(&DataKey::Stats)
+            .map(|s| s.total_sales)
             .unwrap_or(0);
         let mut user_transactions = Vec::new(&env);
 
@@ -470,7 +485,7 @@ impl MarketplaceContract {
     ) -> Result<(), MarketplaceError> {
         admin.require_auth();
 
-        let stored_admin: Address = match env.storage().persistent().get(&DataKey::Admin) {
+        let stored_admin: Address = match env.storage().instance().get(&DataKey::Admin) {
             Some(addr) => addr,
             None => return Err(MarketplaceError::PaymentTokenNotConfigured),
         };
@@ -485,10 +500,10 @@ impl MarketplaceContract {
             active,
         };
 
-        env.storage()
-            .persistent()
-            .set(&DataKey::PriceCap, &price_cap);
-        Self::extend_persistent_ttl(&env, &DataKey::PriceCap);
+        // STORAGE: PriceCap moved to `instance` — write rides the contract
+        // instance TTL, so no separate persistent extension is needed.
+        env.storage().instance().set(&DataKey::PriceCap, &price_cap);
+        upg::extend_instance_ttl(&env);
 
         Ok(())
     }
@@ -502,7 +517,7 @@ impl MarketplaceContract {
     ) -> Result<(), MarketplaceError> {
         admin.require_auth();
 
-        let stored_admin: Address = match env.storage().persistent().get(&DataKey::Admin) {
+        let stored_admin: Address = match env.storage().instance().get(&DataKey::Admin) {
             Some(addr) => addr,
             None => return Err(MarketplaceError::PaymentTokenNotConfigured),
         };
@@ -523,6 +538,7 @@ impl MarketplaceContract {
             return Err(MarketplaceError::InvalidRoyaltyPercentage);
         }
 
+        let recipients_len = recipients.len();
         let config = RoyaltyConfig {
             recipients,
             total_percentage,
@@ -536,7 +552,7 @@ impl MarketplaceContract {
 
         env.events().publish(
             ("royalty_config_initialized",),
-            (total_percentage, recipients.len()),
+            (total_percentage, recipients_len),
         );
 
         Ok(())
@@ -549,7 +565,7 @@ impl MarketplaceContract {
     ) -> Result<(), MarketplaceError> {
         admin.require_auth();
 
-        let stored_admin: Address = match env.storage().persistent().get(&DataKey::Admin) {
+        let stored_admin: Address = match env.storage().instance().get(&DataKey::Admin) {
             Some(addr) => addr,
             None => return Err(MarketplaceError::PaymentTokenNotConfigured),
         };
@@ -581,6 +597,7 @@ impl MarketplaceContract {
             return Err(MarketplaceError::InvalidRoyaltyPercentage);
         }
 
+        let recipients_len = recipients.len();
         let config = RoyaltyConfig {
             recipients,
             total_percentage,
@@ -594,7 +611,7 @@ impl MarketplaceContract {
 
         env.events().publish(
             ("royalty_config_updated",),
-            (total_percentage, recipients.len()),
+            (total_percentage, recipients_len),
         );
 
         Ok(())
@@ -608,7 +625,7 @@ impl MarketplaceContract {
     ) -> Result<(), MarketplaceError> {
         admin.require_auth();
 
-        let stored_admin: Address = match env.storage().persistent().get(&DataKey::Admin) {
+        let stored_admin: Address = match env.storage().instance().get(&DataKey::Admin) {
             Some(addr) => addr,
             None => return Err(MarketplaceError::PaymentTokenNotConfigured),
         };
@@ -631,9 +648,12 @@ impl MarketplaceContract {
         }
 
         // Update the recipient at the specified index
-        let mut recipient = config.recipients.get(index);
+        let mut recipient = config
+            .recipients
+            .get(index)
+            .ok_or(MarketplaceError::RoyaltyConfigNotFound)?;
         recipient.recipient = new_recipient.clone();
-        config.recipients.set(index, &recipient);
+        config.recipients.set(index, recipient);
 
         env.storage()
             .persistent()
@@ -656,7 +676,7 @@ impl MarketplaceContract {
     ) -> Result<(), MarketplaceError> {
         admin.require_auth();
 
-        let stored_admin: Address = match env.storage().persistent().get(&DataKey::Admin) {
+        let stored_admin: Address = match env.storage().instance().get(&DataKey::Admin) {
             Some(addr) => addr,
             None => return Err(MarketplaceError::PaymentTokenNotConfigured),
         };
@@ -679,7 +699,11 @@ impl MarketplaceContract {
         }
 
         // Calculate total without the old percentage at index
-        let old_percentage = config.recipients.get(index).percentage;
+        let mut recipient = config
+            .recipients
+            .get(index)
+            .ok_or(MarketplaceError::RoyaltyConfigNotFound)?;
+        let old_percentage = recipient.percentage;
         let mut new_total = config
             .total_percentage
             .checked_sub(old_percentage)
@@ -695,9 +719,8 @@ impl MarketplaceContract {
         }
 
         // Update the percentage at the specified index
-        let mut recipient = config.recipients.get(index);
         recipient.percentage = new_percentage;
-        config.recipients.set(index, &recipient);
+        config.recipients.set(index, recipient);
         config.total_percentage = new_total;
 
         env.storage()
@@ -716,7 +739,7 @@ impl MarketplaceContract {
     pub fn toggle_royalty_config(env: Env, admin: Address, active: bool) -> Result<(), MarketplaceError> {
         admin.require_auth();
 
-        let stored_admin: Address = match env.storage().persistent().get(&DataKey::Admin) {
+        let stored_admin: Address = match env.storage().instance().get(&DataKey::Admin) {
             Some(addr) => addr,
             None => return Err(MarketplaceError::PaymentTokenNotConfigured),
         };
