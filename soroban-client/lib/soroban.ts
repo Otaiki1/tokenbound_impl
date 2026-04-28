@@ -24,6 +24,9 @@ const SOROBAN_RPC_URL =
   "https://soroban-testnet.stellar.org";
 const NETWORK_PASSPHRASE =
   process.env.NEXT_PUBLIC_NETWORK_PASSPHRASE || Networks.TESTNET;
+const READ_ONLY_ACCOUNT =
+  process.env.NEXT_PUBLIC_SOROBAN_READ_ONLY_ACCOUNT ||
+  "GC2FS36XLXOUYURD3YLNWL6WBTBXCPN57FHN5X77JLRX7D2GF3PD7DMO";
 // contract ID of the deployed EventManager; set this in .env.local
 const EVENT_MANAGER_CONTRACT =
   process.env.NEXT_PUBLIC_EVENT_MANAGER_CONTRACT || "<MISSING_CONTRACT_ID>";
