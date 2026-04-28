@@ -11,7 +11,7 @@ export class DecoderError extends Error {
   constructor(
     message: string,
     public readonly value: unknown,
-    public readonly expectedType: string
+    public readonly expectedType: string,
   ) {
     super(message);
     this.name = "DecoderError";
@@ -33,7 +33,10 @@ export type DecoderResult<T> =
 /**
  * Safe decoder wrapper that returns a result instead of throwing
  */
-export function safeDecode<T>(decoder: Decoder<T>, value: unknown): DecoderResult<T> {
+export function safeDecode<T>(
+  decoder: Decoder<T>,
+  value: unknown,
+): DecoderResult<T> {
   try {
     return { success: true, value: decoder(value) };
   } catch (error) {
@@ -45,7 +48,7 @@ export function safeDecode<T>(decoder: Decoder<T>, value: unknown): DecoderResul
       error: new DecoderError(
         error instanceof Error ? error.message : String(error),
         value,
-        "unknown"
+        "unknown",
       ),
     };
   }
@@ -61,7 +64,7 @@ export function decodeScVal<T = unknown>(scVal: xdr.ScVal): T {
     throw new DecoderError(
       `Failed to decode ScVal: ${error instanceof Error ? error.message : String(error)}`,
       scVal,
-      "ScVal"
+      "ScVal",
     );
   }
 }
@@ -77,7 +80,11 @@ export function decodeString(value: unknown): string {
   if (typeof value === "string") {
     return value;
   }
-  throw new DecoderError(`Expected string, got ${typeof value}`, value, "string");
+  throw new DecoderError(
+    `Expected string, got ${typeof value}`,
+    value,
+    "string",
+  );
 }
 
 /**
@@ -96,7 +103,11 @@ export function decodeNumber(value: unknown): number {
   if (typeof value === "bigint") {
     return Number(value);
   }
-  throw new DecoderError(`Expected number, got ${typeof value}`, value, "number");
+  throw new DecoderError(
+    `Expected number, got ${typeof value}`,
+    value,
+    "number",
+  );
 }
 
 /**
@@ -113,10 +124,18 @@ export function decodeBigInt(value: unknown): bigint {
     try {
       return BigInt(value);
     } catch {
-      throw new DecoderError(`Invalid bigint string: ${value}`, value, "bigint");
+      throw new DecoderError(
+        `Invalid bigint string: ${value}`,
+        value,
+        "bigint",
+      );
     }
   }
-  throw new DecoderError(`Expected bigint, got ${typeof value}`, value, "bigint");
+  throw new DecoderError(
+    `Expected bigint, got ${typeof value}`,
+    value,
+    "bigint",
+  );
 }
 
 /**
@@ -126,7 +145,11 @@ export function decodeBoolean(value: unknown): boolean {
   if (typeof value === "boolean") {
     return value;
   }
-  throw new DecoderError(`Expected boolean, got ${typeof value}`, value, "boolean");
+  throw new DecoderError(
+    `Expected boolean, got ${typeof value}`,
+    value,
+    "boolean",
+  );
 }
 
 /**
@@ -147,7 +170,11 @@ export function decodeBytes(value: unknown): Uint8Array {
       return bytes;
     }
   }
-  throw new DecoderError(`Expected Uint8Array or hex string, got ${typeof value}`, value, "bytes");
+  throw new DecoderError(
+    `Expected Uint8Array or hex string, got ${typeof value}`,
+    value,
+    "bytes",
+  );
 }
 
 /**
@@ -159,7 +186,11 @@ export function decodeAddress(value: unknown): string {
   if (str.length === 56 && (str.startsWith("G") || str.startsWith("C"))) {
     return str;
   }
-  throw new DecoderError(`Invalid Stellar address format: ${str}`, value, "address");
+  throw new DecoderError(
+    `Invalid Stellar address format: ${str}`,
+    value,
+    "address",
+  );
 }
 
 /**
@@ -179,7 +210,11 @@ export function decodeSymbol(value: unknown): string {
 export function decodeArray<T>(elementDecoder: Decoder<T>): Decoder<T[]> {
   return (value: unknown): T[] => {
     if (!Array.isArray(value)) {
-      throw new DecoderError(`Expected array, got ${typeof value}`, value, "array");
+      throw new DecoderError(
+        `Expected array, got ${typeof value}`,
+        value,
+        "array",
+      );
     }
     return value.map((item, index) => {
       try {
@@ -189,7 +224,7 @@ export function decodeArray<T>(elementDecoder: Decoder<T>): Decoder<T[]> {
           throw new DecoderError(
             `Array element at index ${index}: ${error.message}`,
             value,
-            `array<${error.expectedType}>`
+            `array<${error.expectedType}>`,
           );
         }
         throw error;
@@ -234,13 +269,17 @@ export function decodeTuple<T extends readonly unknown[]>(
 ): Decoder<T> {
   return (value: unknown): T => {
     if (!Array.isArray(value)) {
-      throw new DecoderError(`Expected tuple (array), got ${typeof value}`, value, "tuple");
+      throw new DecoderError(
+        `Expected tuple (array), got ${typeof value}`,
+        value,
+        "tuple",
+      );
     }
     if (value.length !== decoders.length) {
       throw new DecoderError(
         `Expected tuple of length ${decoders.length}, got ${value.length}`,
         value,
-        `tuple[${decoders.length}]`
+        `tuple[${decoders.length}]`,
       );
     }
     return decoders.map((decoder, index) => {
@@ -251,7 +290,7 @@ export function decodeTuple<T extends readonly unknown[]>(
           throw new DecoderError(
             `Tuple element at index ${index}: ${error.message}`,
             value,
-            `tuple[${index}]`
+            `tuple[${index}]`,
           );
         }
         throw error;
@@ -263,12 +302,16 @@ export function decodeTuple<T extends readonly unknown[]>(
 /**
  * Decode to object/struct with field decoders
  */
-export function decodeStruct<T extends Record<string, unknown>>(
-  fieldDecoders: { [K in keyof T]: Decoder<T[K]> }
-): Decoder<T> {
+export function decodeStruct<T extends Record<string, unknown>>(fieldDecoders: {
+  [K in keyof T]: Decoder<T[K]>;
+}): Decoder<T> {
   return (value: unknown): T => {
     if (typeof value !== "object" || value === null) {
-      throw new DecoderError(`Expected object, got ${typeof value}`, value, "struct");
+      throw new DecoderError(
+        `Expected object, got ${typeof value}`,
+        value,
+        "struct",
+      );
     }
     const obj = value as Record<string, unknown>;
     const result = {} as T;
@@ -280,7 +323,7 @@ export function decodeStruct<T extends Record<string, unknown>>(
           throw new DecoderError(
             `Struct field '${key}': ${error.message}`,
             value,
-            `struct.${key}`
+            `struct.${key}`,
           );
         }
         throw error;
@@ -295,11 +338,15 @@ export function decodeStruct<T extends Record<string, unknown>>(
  */
 export function decodeMap<K extends string | number, V>(
   keyDecoder: Decoder<K>,
-  valueDecoder: Decoder<V>
+  valueDecoder: Decoder<V>,
 ): Decoder<Record<K, V>> {
   return (value: unknown): Record<K, V> => {
     if (typeof value !== "object" || value === null) {
-      throw new DecoderError(`Expected object/map, got ${typeof value}`, value, "map");
+      throw new DecoderError(
+        `Expected object/map, got ${typeof value}`,
+        value,
+        "map",
+      );
     }
     const obj = value as Record<string, unknown>;
     const result = {} as Record<K, V>;
@@ -313,7 +360,7 @@ export function decodeMap<K extends string | number, V>(
           throw new DecoderError(
             `Map entry '${key}': ${error.message}`,
             value,
-            `map<${error.expectedType}>`
+            `map<${error.expectedType}>`,
           );
         }
         throw error;
@@ -330,7 +377,10 @@ export function decodeMap<K extends string | number, V>(
 /**
  * Decode with fallback value if decoding fails
  */
-export function decodeWithDefault<T>(decoder: Decoder<T>, defaultValue: T): Decoder<T> {
+export function decodeWithDefault<T>(
+  decoder: Decoder<T>,
+  defaultValue: T,
+): Decoder<T> {
   return (value: unknown): T => {
     try {
       return decoder(value);
@@ -358,7 +408,7 @@ export function decodeOneOf<T>(...decoders: Decoder<T>[]): Decoder<T> {
     throw new DecoderError(
       `Failed to decode with any of ${decoders.length} decoders: ${errors.map((e) => e.message).join(", ")}`,
       value,
-      "oneOf"
+      "oneOf",
     );
   };
 }
@@ -366,7 +416,10 @@ export function decodeOneOf<T>(...decoders: Decoder<T>[]): Decoder<T> {
 /**
  * Decode and transform value
  */
-export function decodeTransform<T, U>(decoder: Decoder<T>, transform: (value: T) => U): Decoder<U> {
+export function decodeTransform<T, U>(
+  decoder: Decoder<T>,
+  transform: (value: T) => U,
+): Decoder<U> {
   return (value: unknown): U => {
     const decoded = decoder(value);
     return transform(decoded);
@@ -379,7 +432,7 @@ export function decodeTransform<T, U>(decoder: Decoder<T>, transform: (value: T)
 export function decodeValidate<T>(
   decoder: Decoder<T>,
   validate: (value: T) => boolean,
-  errorMessage: string
+  errorMessage: string,
 ): Decoder<T> {
   return (value: unknown): T => {
     const decoded = decoder(value);
@@ -393,7 +446,9 @@ export function decodeValidate<T>(
 /**
  * Decode literal value
  */
-export function decodeLiteral<T extends string | number | boolean>(literal: T): Decoder<T> {
+export function decodeLiteral<T extends string | number | boolean>(
+  literal: T,
+): Decoder<T> {
   return (value: unknown): T => {
     if (value === literal) {
       return literal;
@@ -401,7 +456,7 @@ export function decodeLiteral<T extends string | number | boolean>(literal: T): 
     throw new DecoderError(
       `Expected literal ${JSON.stringify(literal)}, got ${JSON.stringify(value)}`,
       value,
-      `literal<${typeof literal}>`
+      `literal<${typeof literal}>`,
     );
   };
 }
@@ -411,7 +466,7 @@ export function decodeLiteral<T extends string | number | boolean>(literal: T): 
  */
 export function decodeEnum<T extends string>(
   enumValues: readonly T[],
-  enumName = "enum"
+  enumName = "enum",
 ): Decoder<T> {
   return (value: unknown): T => {
     const str = decodeString(value);
@@ -421,7 +476,7 @@ export function decodeEnum<T extends string>(
     throw new DecoderError(
       `Expected one of [${enumValues.join(", ")}], got ${str}`,
       value,
-      enumName
+      enumName,
     );
   };
 }
@@ -436,7 +491,11 @@ export function decodeEnum<T extends string>(
 export function decodeU32(value: unknown): number {
   const num = decodeNumber(value);
   if (num < 0 || num > 4294967295 || !Number.isInteger(num)) {
-    throw new DecoderError(`Expected u32 (0-4294967295), got ${num}`, value, "u32");
+    throw new DecoderError(
+      `Expected u32 (0-4294967295), got ${num}`,
+      value,
+      "u32",
+    );
   }
   return num;
 }
@@ -447,7 +506,11 @@ export function decodeU32(value: unknown): number {
 export function decodeU64(value: unknown): number {
   const num = decodeNumber(value);
   if (num < 0 || !Number.isInteger(num)) {
-    throw new DecoderError(`Expected u64 (non-negative integer), got ${num}`, value, "u64");
+    throw new DecoderError(
+      `Expected u64 (non-negative integer), got ${num}`,
+      value,
+      "u64",
+    );
   }
   return num;
 }
@@ -458,7 +521,11 @@ export function decodeU64(value: unknown): number {
 export function decodeU128(value: unknown): bigint {
   const bigint = decodeBigInt(value);
   if (bigint < 0n) {
-    throw new DecoderError(`Expected u128 (non-negative), got ${bigint}`, value, "u128");
+    throw new DecoderError(
+      `Expected u128 (non-negative), got ${bigint}`,
+      value,
+      "u128",
+    );
   }
   return bigint;
 }
@@ -469,7 +536,11 @@ export function decodeU128(value: unknown): bigint {
 export function decodeI32(value: unknown): number {
   const num = decodeNumber(value);
   if (num < -2147483648 || num > 2147483647 || !Number.isInteger(num)) {
-    throw new DecoderError(`Expected i32 (-2147483648 to 2147483647), got ${num}`, value, "i32");
+    throw new DecoderError(
+      `Expected i32 (-2147483648 to 2147483647), got ${num}`,
+      value,
+      "i32",
+    );
   }
   return num;
 }
@@ -502,7 +573,7 @@ export function decodeBytesN(size: number): Decoder<Uint8Array> {
       throw new DecoderError(
         `Expected BytesN<${size}>, got ${bytes.length} bytes`,
         value,
-        `BytesN<${size}>`
+        `BytesN<${size}>`,
       );
     }
     return bytes;
@@ -516,7 +587,11 @@ export function decodeVoid(value: unknown): void {
   if (value === undefined || value === null) {
     return undefined;
   }
-  throw new DecoderError(`Expected void/unit, got ${typeof value}`, value, "void");
+  throw new DecoderError(
+    `Expected void/unit, got ${typeof value}`,
+    value,
+    "void",
+  );
 }
 
 // ============================================================================
@@ -587,7 +662,7 @@ export class ContractDecoder {
 export function decodeContractResponse<T>(
   decoder: Decoder<T>,
   response: unknown,
-  context?: string
+  context?: string,
 ): T {
   try {
     return decoder(response);
@@ -597,7 +672,7 @@ export function decodeContractResponse<T>(
       throw new DecoderError(
         `Failed to decode contract response${contextMsg}: ${error.message}`,
         response,
-        error.expectedType
+        error.expectedType,
       );
     }
     throw error;
@@ -607,13 +682,20 @@ export function decodeContractResponse<T>(
 /**
  * Create a custom decoder with error context
  */
-export function withContext<T>(decoder: Decoder<T>, context: string): Decoder<T> {
+export function withContext<T>(
+  decoder: Decoder<T>,
+  context: string,
+): Decoder<T> {
   return (value: unknown): T => {
     try {
       return decoder(value);
     } catch (error) {
       if (error instanceof DecoderError) {
-        throw new DecoderError(`${context}: ${error.message}`, value, error.expectedType);
+        throw new DecoderError(
+          `${context}: ${error.message}`,
+          value,
+          error.expectedType,
+        );
       }
       throw error;
     }

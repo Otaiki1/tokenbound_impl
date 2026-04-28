@@ -13,7 +13,10 @@ import {
   decodeTransactionXdr,
   inspectTransaction,
 } from "@/sdk/src/offline-builder";
-import type { ContractCallArtifact, PreparedTransaction } from "@/sdk/src/types";
+import type {
+  ContractCallArtifact,
+  PreparedTransaction,
+} from "@/sdk/src/types";
 
 const NETWORK_PASSPHRASE = Networks.TESTNET;
 
@@ -32,7 +35,7 @@ const MOCK_ACCOUNT = {
 
 function makeArtifact(
   method = "create_event",
-  args: ReturnType<typeof nativeToScVal>[] = []
+  args: ReturnType<typeof nativeToScVal>[] = [],
 ): ContractCallArtifact {
   return { contractId: MOCK_CONTRACT_ID, method, args };
 }
@@ -43,8 +46,15 @@ function makeArtifact(
 
 describe("buildOfflineTransaction", () => {
   it("returns a PreparedTransaction with xdr, networkPassphrase and source", () => {
-    const result = buildOfflineTransaction(MOCK_ACCOUNT, makeArtifact(), NETWORK_PASSPHRASE);
-    expect(result).toMatchObject({ networkPassphrase: NETWORK_PASSPHRASE, source: MOCK_ACCOUNT_ID });
+    const result = buildOfflineTransaction(
+      MOCK_ACCOUNT,
+      makeArtifact(),
+      NETWORK_PASSPHRASE,
+    );
+    expect(result).toMatchObject({
+      networkPassphrase: NETWORK_PASSPHRASE,
+      source: MOCK_ACCOUNT_ID,
+    });
     expect(typeof result.xdr).toBe("string");
     expect(result.xdr.length).toBeGreaterThan(0);
   });
@@ -55,32 +65,57 @@ describe("buildOfflineTransaction", () => {
       nativeToScVal(1, { type: "u32" }),
       nativeToScVal(BigInt(2), { type: "u128" }),
     ]);
-    const prepared = buildOfflineTransaction(MOCK_ACCOUNT, artifact, NETWORK_PASSPHRASE);
-    expect(() => TransactionBuilder.fromXDR(prepared.xdr, NETWORK_PASSPHRASE)).not.toThrow();
+    const prepared = buildOfflineTransaction(
+      MOCK_ACCOUNT,
+      artifact,
+      NETWORK_PASSPHRASE,
+    );
+    expect(() =>
+      TransactionBuilder.fromXDR(prepared.xdr, NETWORK_PASSPHRASE),
+    ).not.toThrow();
   });
 
   it("uses the provided fee", () => {
-    const prepared = buildOfflineTransaction(MOCK_ACCOUNT, makeArtifact(), NETWORK_PASSPHRASE, { fee: 500 });
-    const tx = TransactionBuilder.fromXDR(prepared.xdr, NETWORK_PASSPHRASE) as any;
+    const prepared = buildOfflineTransaction(
+      MOCK_ACCOUNT,
+      makeArtifact(),
+      NETWORK_PASSPHRASE,
+      { fee: 500 },
+    );
+    const tx = TransactionBuilder.fromXDR(
+      prepared.xdr,
+      NETWORK_PASSPHRASE,
+    ) as any;
     expect(Number(tx.fee)).toBe(500);
   });
 
   it("uses DEFAULT_FEE (100) when no fee is provided", () => {
-    const prepared = buildOfflineTransaction(MOCK_ACCOUNT, makeArtifact(), NETWORK_PASSPHRASE);
-    const tx = TransactionBuilder.fromXDR(prepared.xdr, NETWORK_PASSPHRASE) as any;
+    const prepared = buildOfflineTransaction(
+      MOCK_ACCOUNT,
+      makeArtifact(),
+      NETWORK_PASSPHRASE,
+    );
+    const tx = TransactionBuilder.fromXDR(
+      prepared.xdr,
+      NETWORK_PASSPHRASE,
+    ) as any;
     expect(Number(tx.fee)).toBe(100);
   });
 
   it("makes zero network calls", () => {
     expect(() =>
-      buildOfflineTransaction(MOCK_ACCOUNT, makeArtifact(), NETWORK_PASSPHRASE)
+      buildOfflineTransaction(MOCK_ACCOUNT, makeArtifact(), NETWORK_PASSPHRASE),
     ).not.toThrow();
   });
 
   it("does not mutate the supplied artifact args array", () => {
     const args = [nativeToScVal(42, { type: "u32" })];
     const frozen = [...args];
-    buildOfflineTransaction(MOCK_ACCOUNT, makeArtifact("get_event", args), NETWORK_PASSPHRASE);
+    buildOfflineTransaction(
+      MOCK_ACCOUNT,
+      makeArtifact("get_event", args),
+      NETWORK_PASSPHRASE,
+    );
     expect(args).toEqual(frozen);
   });
 });
@@ -105,8 +140,15 @@ describe("buildContractArtifact", () => {
 
 describe("serializeTransaction", () => {
   it("produces a JSON-safe SerializedTransaction", () => {
-    const prepared = buildOfflineTransaction(MOCK_ACCOUNT, makeArtifact(), NETWORK_PASSPHRASE);
-    const serialized = serializeTransaction(prepared, MOCK_ACCOUNT.sequenceNumber);
+    const prepared = buildOfflineTransaction(
+      MOCK_ACCOUNT,
+      makeArtifact(),
+      NETWORK_PASSPHRASE,
+    );
+    const serialized = serializeTransaction(
+      prepared,
+      MOCK_ACCOUNT.sequenceNumber,
+    );
     expect(serialized.xdr).toBe(prepared.xdr);
     expect(serialized.networkPassphrase).toBe(NETWORK_PASSPHRASE);
     expect(serialized.source).toBe(MOCK_ACCOUNT_ID);
@@ -118,8 +160,15 @@ describe("serializeTransaction", () => {
 
 describe("deserializeTransaction", () => {
   it("restores a PreparedTransaction from a SerializedTransaction", () => {
-    const prepared = buildOfflineTransaction(MOCK_ACCOUNT, makeArtifact(), NETWORK_PASSPHRASE);
-    const serialized = serializeTransaction(prepared, MOCK_ACCOUNT.sequenceNumber);
+    const prepared = buildOfflineTransaction(
+      MOCK_ACCOUNT,
+      makeArtifact(),
+      NETWORK_PASSPHRASE,
+    );
+    const serialized = serializeTransaction(
+      prepared,
+      MOCK_ACCOUNT.sequenceNumber,
+    );
     const restored = deserializeTransaction(serialized);
     expect(restored.xdr).toBe(prepared.xdr);
     expect(restored.networkPassphrase).toBe(NETWORK_PASSPHRASE);
@@ -133,7 +182,7 @@ describe("deserializeTransaction", () => {
         networkPassphrase: NETWORK_PASSPHRASE,
         source: MOCK_ACCOUNT_ID,
         sequenceNumber: "1000",
-      })
+      }),
     ).toThrow();
   });
 
@@ -141,9 +190,11 @@ describe("deserializeTransaction", () => {
     const prepared = buildOfflineTransaction(
       MOCK_ACCOUNT,
       makeArtifact("cancel_event", [nativeToScVal(7, { type: "u32" })]),
-      NETWORK_PASSPHRASE
+      NETWORK_PASSPHRASE,
     );
-    const restored = deserializeTransaction(serializeTransaction(prepared, MOCK_ACCOUNT.sequenceNumber));
+    const restored = deserializeTransaction(
+      serializeTransaction(prepared, MOCK_ACCOUNT.sequenceNumber),
+    );
     expect(restored.xdr).toBe(prepared.xdr);
   });
 });
@@ -154,7 +205,11 @@ describe("deserializeTransaction", () => {
 
 describe("decodeTransactionXdr", () => {
   it("returns a Transaction object with the correct source", () => {
-    const prepared = buildOfflineTransaction(MOCK_ACCOUNT, makeArtifact(), NETWORK_PASSPHRASE);
+    const prepared = buildOfflineTransaction(
+      MOCK_ACCOUNT,
+      makeArtifact(),
+      NETWORK_PASSPHRASE,
+    );
     const tx = decodeTransactionXdr(prepared);
     expect(tx.source).toBe(MOCK_ACCOUNT_ID);
   });
@@ -175,7 +230,11 @@ describe("decodeTransactionXdr", () => {
 
 describe("inspectTransaction", () => {
   it("returns source and networkPassphrase", () => {
-    const prepared = buildOfflineTransaction(MOCK_ACCOUNT, makeArtifact(), NETWORK_PASSPHRASE);
+    const prepared = buildOfflineTransaction(
+      MOCK_ACCOUNT,
+      makeArtifact(),
+      NETWORK_PASSPHRASE,
+    );
     const summary = inspectTransaction(prepared);
     expect(summary.source).toBe(MOCK_ACCOUNT_ID);
     expect(summary.networkPassphrase).toBe(NETWORK_PASSPHRASE);
@@ -185,7 +244,7 @@ describe("inspectTransaction", () => {
     const prepared = buildOfflineTransaction(
       MOCK_ACCOUNT,
       makeArtifact("withdraw_funds", [nativeToScVal(3, { type: "u32" })]),
-      NETWORK_PASSPHRASE
+      NETWORK_PASSPHRASE,
     );
     const summary = inspectTransaction(prepared);
     expect(summary.operations.length).toBeGreaterThan(0);
@@ -209,7 +268,10 @@ describe("OfflineTransactionBuilder", () => {
 
     it("respects custom fee option", () => {
       const result = builder.build(MOCK_ACCOUNT, makeArtifact(), { fee: 250 });
-      const tx = TransactionBuilder.fromXDR(result.xdr, NETWORK_PASSPHRASE) as any;
+      const tx = TransactionBuilder.fromXDR(
+        result.xdr,
+        NETWORK_PASSPHRASE,
+      ) as any;
       expect(Number(tx.fee)).toBe(250);
     });
   });
@@ -217,7 +279,10 @@ describe("OfflineTransactionBuilder", () => {
   describe("buildAndSerialize()", () => {
     it("returns a SerializedTransaction with sequenceNumber", () => {
       const result = builder.buildAndSerialize(MOCK_ACCOUNT, makeArtifact());
-      expect(result).toHaveProperty("sequenceNumber", MOCK_ACCOUNT.sequenceNumber);
+      expect(result).toHaveProperty(
+        "sequenceNumber",
+        MOCK_ACCOUNT.sequenceNumber,
+      );
       expect(result).toHaveProperty("xdr");
     });
 
@@ -229,7 +294,10 @@ describe("OfflineTransactionBuilder", () => {
 
   describe("restore()", () => {
     it("restores a serialized transaction", () => {
-      const serialized = builder.buildAndSerialize(MOCK_ACCOUNT, makeArtifact());
+      const serialized = builder.buildAndSerialize(
+        MOCK_ACCOUNT,
+        makeArtifact(),
+      );
       const restored = builder.restore(serialized);
       expect(restored.xdr).toBe(serialized.xdr);
       expect(restored.source).toBe(serialized.source);
@@ -240,7 +308,7 @@ describe("OfflineTransactionBuilder", () => {
     it("returns a readable summary", () => {
       const prepared = builder.build(
         MOCK_ACCOUNT,
-        makeArtifact("get_event", [nativeToScVal(1, { type: "u32" })])
+        makeArtifact("get_event", [nativeToScVal(1, { type: "u32" })]),
       );
       const summary = builder.inspect(prepared);
       expect(summary.source).toBe(MOCK_ACCOUNT_ID);
@@ -250,16 +318,23 @@ describe("OfflineTransactionBuilder", () => {
 
   describe("delegated signing flow (end-to-end)", () => {
     it("build -> serialize -> restore -> decode produces valid XDR at each step", () => {
-      const artifact = buildContractArtifact(MOCK_CONTRACT_ID, "purchase_tickets", [
-        nativeToScVal(MOCK_CONTRACT_ID, { type: "address" }),
-        nativeToScVal(1, { type: "u32" }),
-        nativeToScVal(BigInt(1), { type: "u128" }),
-      ]);
+      const artifact = buildContractArtifact(
+        MOCK_CONTRACT_ID,
+        "purchase_tickets",
+        [
+          nativeToScVal(MOCK_CONTRACT_ID, { type: "address" }),
+          nativeToScVal(1, { type: "u32" }),
+          nativeToScVal(BigInt(1), { type: "u128" }),
+        ],
+      );
 
       const prepared = builder.build(MOCK_ACCOUNT, artifact, { fee: 300 });
       expect(prepared.xdr).toBeTruthy();
 
-      const serialized = serializeTransaction(prepared, MOCK_ACCOUNT.sequenceNumber);
+      const serialized = serializeTransaction(
+        prepared,
+        MOCK_ACCOUNT.sequenceNumber,
+      );
       const json = JSON.stringify(serialized);
       expect(json).toBeTruthy();
 

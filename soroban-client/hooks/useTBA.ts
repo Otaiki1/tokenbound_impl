@@ -1,22 +1,25 @@
 "use client";
 
-import { useCallback } from 'react';
-import { useSorobanContractRead, useSorobanContractWrite } from './useSorobanContract';
-import type { 
-  CreateAccountInput, 
+import { useCallback } from "react";
+import {
+  useSorobanContractRead,
+  useSorobanContractWrite,
+} from "./useSorobanContract";
+import type {
+  CreateAccountInput,
   ExecuteTbaCallInput,
-  WriteInvokeOptions, 
-  InvokeOptions 
-} from '../sdk/src/types';
+  WriteInvokeOptions,
+  InvokeOptions,
+} from "../sdk/src/types";
 
 export function useGetTBAAccount(
   sdk: any,
   input: CreateAccountInput,
-  options?: InvokeOptions & { enabled?: boolean }
+  options?: InvokeOptions & { enabled?: boolean },
 ) {
   const contractFn = useCallback(
     (opts?: InvokeOptions) => sdk?.tbaRegistry.getAccount(input, opts),
-    [sdk, input]
+    [sdk, input],
   );
 
   return useSorobanContractRead<string>(contractFn, options);
@@ -25,12 +28,12 @@ export function useGetTBAAccount(
 export function useCreateTBAAccount(
   sdk: any,
   input: CreateAccountInput,
-  options: WriteInvokeOptions
+  options: WriteInvokeOptions,
 ) {
   const contractFn = useCallback(
-    (inp: CreateAccountInput, opts: WriteInvokeOptions) => 
+    (inp: CreateAccountInput, opts: WriteInvokeOptions) =>
       sdk?.tbaRegistry.createAccount(inp, opts),
-    [sdk]
+    [sdk],
   );
 
   return useSorobanContractWrite(contractFn, input, options);
@@ -38,11 +41,11 @@ export function useCreateTBAAccount(
 
 export function useTBAOwner(
   sdk: any,
-  options?: InvokeOptions & { enabled?: boolean }
+  options?: InvokeOptions & { enabled?: boolean },
 ) {
   const contractFn = useCallback(
     (opts?: InvokeOptions) => sdk?.tbaAccount.owner(opts),
-    [sdk]
+    [sdk],
   );
 
   return useSorobanContractRead<string>(contractFn, options);
@@ -50,11 +53,11 @@ export function useTBAOwner(
 
 export function useTBATokenInfo(
   sdk: any,
-  options?: InvokeOptions & { enabled?: boolean }
+  options?: InvokeOptions & { enabled?: boolean },
 ) {
   const contractFn = useCallback(
     (opts?: InvokeOptions) => sdk?.tbaAccount.token(opts),
-    [sdk]
+    [sdk],
   );
 
   return useSorobanContractRead<[number, string, bigint]>(contractFn, options);
@@ -62,11 +65,11 @@ export function useTBATokenInfo(
 
 export function useTBANonce(
   sdk: any,
-  options?: InvokeOptions & { enabled?: boolean }
+  options?: InvokeOptions & { enabled?: boolean },
 ) {
   const contractFn = useCallback(
     (opts?: InvokeOptions) => sdk?.tbaAccount.nonce(opts),
-    [sdk]
+    [sdk],
   );
 
   return useSorobanContractRead<number>(contractFn, options);
@@ -75,12 +78,12 @@ export function useTBANonce(
 export function useExecuteTBACall(
   sdk: any,
   input: ExecuteTbaCallInput,
-  options: WriteInvokeOptions
+  options: WriteInvokeOptions,
 ) {
   const contractFn = useCallback(
-    (inp: ExecuteTbaCallInput, opts: WriteInvokeOptions) => 
+    (inp: ExecuteTbaCallInput, opts: WriteInvokeOptions) =>
       sdk?.tbaAccount.execute(inp, opts),
-    [sdk]
+    [sdk],
   );
 
   return useSorobanContractWrite(contractFn, input, options);

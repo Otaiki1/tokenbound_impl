@@ -127,10 +127,12 @@ describe("Decoders", () => {
 
     describe("decodeAddress", () => {
       it("should decode valid Stellar addresses", () => {
-        const address = "GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX";
+        const address =
+          "GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX";
         expect(decodeAddress(address)).toBe(address);
 
-        const contractAddress = "CXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX";
+        const contractAddress =
+          "CXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX";
         expect(decodeAddress(contractAddress)).toBe(contractAddress);
       });
 
@@ -312,7 +314,7 @@ describe("Decoders", () => {
         const decoder = decodeValidate(
           decodeNumber,
           (n) => n > 0,
-          "Must be positive"
+          "Must be positive",
         );
         expect(decoder(5)).toBe(5);
       });
@@ -321,7 +323,7 @@ describe("Decoders", () => {
         const decoder = decodeValidate(
           decodeNumber,
           (n) => n > 0,
-          "Must be positive"
+          "Must be positive",
         );
         expect(() => decoder(-5)).toThrow(DecoderError);
       });
@@ -470,8 +472,10 @@ describe("Decoders", () => {
           start_date: 1234567890,
           end_date: 1234567900,
           is_canceled: false,
-          ticket_nft_addr: "CXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
-          payment_token: "CXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+          ticket_nft_addr:
+            "CXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+          payment_token:
+            "CXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
         };
 
         expect(decoder(event)).toEqual(event);

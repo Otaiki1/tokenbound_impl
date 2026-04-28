@@ -98,7 +98,7 @@ export class SorobanSdkCore {
     method: string,
     correlationId: string,
     attributes: TraceSpan["attributes"],
-    fn: (span: TraceSpan) => Promise<T>
+    fn: (span: TraceSpan) => Promise<T>,
   ): Promise<T> {
     return withSpan(
       name,
@@ -108,7 +108,7 @@ export class SorobanSdkCore {
       attributes,
       this.onSpanStart,
       this.onSpanEnd,
-      fn
+      fn,
     );
   }
 
@@ -245,9 +245,18 @@ export class SorobanSdkCore {
       { contractId: artifact.contractId },
       async () => {
         try {
-          const source = this.resolveReadSource(options?.source ?? options?.simulationSource);
-          const tx = await this.buildInvokeTransaction(source, artifact, options);
-          const simulation = await this.rpcServer.simulateTransaction(tx);
+          const source = this.resolveReadSource(
+            options?.source ?? options?.simulationSource,
+          );
+          const tx = await this.buildInvokeTransaction(
+            source,
+            artifact,
+            options,
+          );
+          const simulation = await this.retryPolicy.execute(
+            () => this.rpcServer.simulateTransaction(tx),
+            `simulate ${contract}.${artifact.method}`,
+          );
           if (rpc.Api.isSimulationError(simulation)) {
             throw mapSdkError(contract, simulation.error, "Simulation failed.");
           }
@@ -281,7 +290,7 @@ export class SorobanSdkCore {
           return undefined as TNative;
         }
         return scValToNative(returnValue) as TNative;
-      }
+      },
     );
   }
 
@@ -302,7 +311,11 @@ export class SorobanSdkCore {
           if (!options.source) {
             throw new Error("Write calls require a source account.");
           }
-          const tx = await this.buildInvokeTransaction(options.source, artifact, options);
+          const tx = await this.buildInvokeTransaction(
+            options.source,
+            artifact,
+            options,
+          );
           const simulation = await this.rpcServer.simulateTransaction(tx);
           if (rpc.Api.isSimulationError(simulation)) {
             throw mapSdkError(contract, simulation.error, "Simulation failed.");
@@ -316,7 +329,7 @@ export class SorobanSdkCore {
         } catch (error) {
           throw mapSdkError(contract, error, "Preparing transaction failed.");
         }
-      }
+      },
     );
       const tx = await this.buildInvokeTransaction(
         options.source,
@@ -370,9 +383,12 @@ export class SorobanSdkCore {
           });
           const signedTx = TransactionBuilder.fromXDR(
             signedXdr,
-            this.config.networkPassphrase
+            this.config.networkPassphrase,
           );
-          const sent = await this.rpcServer.sendTransaction(signedTx);
+          const sent = await this.retryPolicy.execute(
+            () => this.rpcServer.sendTransaction(signedTx),
+            `sendTransaction ${contract}.${artifact.method}`,
+          );
           if (sent.status === "ERROR") {
             throw new Error(sent.errorResult ? String(sent.errorResult) : "Transaction submission failed.");
           }

@@ -45,13 +45,13 @@ const sdk = createTokenboundSdk({
     // ... other contracts
   },
   retryConfig: {
-    maxRetries: 5,              // Retry up to 5 times
-    initialDelayMs: 2000,       // Start with 2 second delay
-    maxDelayMs: 60000,          // Cap at 60 seconds
-    backoffMultiplier: 2,       // Double delay each time
-    enableJitter: true,         // Add randomization
-    jitterFactor: 0.15          // ±15% randomization
-  }
+    maxRetries: 5, // Retry up to 5 times
+    initialDelayMs: 2000, // Start with 2 second delay
+    maxDelayMs: 60000, // Cap at 60 seconds
+    backoffMultiplier: 2, // Double delay each time
+    enableJitter: true, // Add randomization
+    jitterFactor: 0.15, // ±15% randomization
+  },
 });
 ```
 
@@ -60,6 +60,7 @@ const sdk = createTokenboundSdk({
 The following error patterns trigger automatic retries:
 
 ### Network Errors
+
 - `ECONNREFUSED` - Connection refused
 - `ENOTFOUND` - DNS lookup failed
 - `ETIMEDOUT` - Connection timeout
@@ -67,15 +68,18 @@ The following error patterns trigger automatic retries:
 - `socket hang up` - Socket disconnected
 
 ### Rate Limiting
+
 - `rate limit` - Rate limit exceeded
 - `too many requests` - Too many requests
 
 ### HTTP Errors
+
 - `502` - Bad Gateway
 - `503` - Service Unavailable
 - `504` - Gateway Timeout
 
 ### General
+
 - `network` - Generic network errors
 - `timeout` - Timeout errors
 - `temporarily unavailable` - Temporary unavailability
@@ -89,6 +93,7 @@ delay = min(initialDelay * (multiplier ^ attempt), maxDelay)
 ```
 
 With jitter enabled:
+
 ```
 jitter = random(-jitterFactor, +jitterFactor) * delay
 finalDelay = delay + jitter
@@ -97,11 +102,11 @@ finalDelay = delay + jitter
 ### Example Delays (Default Config)
 
 | Attempt | Base Delay | With Jitter (±10%) |
-|---------|------------|-------------------|
-| 1       | 1000ms     | 900-1100ms        |
-| 2       | 2000ms     | 1800-2200ms       |
-| 3       | 4000ms     | 3600-4400ms       |
-| 4       | 8000ms     | 7200-8800ms       |
+| ------- | ---------- | ------------------ |
+| 1       | 1000ms     | 900-1100ms         |
+| 2       | 2000ms     | 1800-2200ms        |
+| 3       | 4000ms     | 3600-4400ms        |
+| 4       | 8000ms     | 7200-8800ms        |
 
 ## Usage Examples
 
@@ -114,17 +119,20 @@ The retry policy is automatically applied to all RPC operations:
 const event = await sdk.eventManager.getEvent({ eventId: 1 });
 
 // Automatically retries transaction submission
-const result = await sdk.eventManager.createEvent({
-  organizer: "GXXX...",
-  theme: "Web3 Conference",
-  // ... other params
-}, {
-  source: "GXXX...",
-  signTransaction: async (xdr, opts) => {
-    // Sign transaction
-    return signedXdr;
-  }
-});
+const result = await sdk.eventManager.createEvent(
+  {
+    organizer: "GXXX...",
+    theme: "Web3 Conference",
+    // ... other params
+  },
+  {
+    source: "GXXX...",
+    signTransaction: async (xdr, opts) => {
+      // Sign transaction
+      return signedXdr;
+    },
+  },
+);
 ```
 
 ### Using RetryPolicy Directly
@@ -145,7 +153,7 @@ const result = await retryPolicy.execute(
     // Your RPC call here
     return await someRpcCall();
   },
-  "custom operation" // Optional context for logging
+  "custom operation", // Optional context for logging
 );
 ```
 
@@ -164,7 +172,7 @@ const result = await withRetry(
     maxRetries: 2,
     initialDelayMs: 500,
   },
-  "one-off operation"
+  "one-off operation",
 );
 ```
 
@@ -177,6 +185,7 @@ RPC call failed (simulate eventManager.createEvent), retrying in 1023ms (attempt
 ```
 
 This helps with:
+
 - Debugging transient issues
 - Monitoring RPC reliability
 - Identifying patterns in failures
@@ -188,12 +197,12 @@ This helps with:
 ```typescript
 // For critical operations
 retryConfig: {
-  maxRetries: 5  // More retries for important operations
+  maxRetries: 5; // More retries for important operations
 }
 
 // For non-critical operations
 retryConfig: {
-  maxRetries: 2  // Fewer retries to fail fast
+  maxRetries: 2; // Fewer retries to fail fast
 }
 ```
 
@@ -225,6 +234,7 @@ retryConfig: {
 ### 4. Monitor Retry Patterns
 
 Watch for frequent retries which may indicate:
+
 - RPC endpoint issues
 - Network problems
 - Rate limiting
@@ -255,6 +265,7 @@ npm test -- retry.test.ts
 ```
 
 Test coverage includes:
+
 - Error classification
 - Delay calculation
 - Exponential backoff
@@ -267,12 +278,14 @@ Test coverage includes:
 ### Network Overhead
 
 With default config (3 retries):
+
 - Best case: No retries, immediate response
 - Worst case: ~7 seconds total delay (1s + 2s + 4s)
 
 ### Timeout Interaction
 
 The retry policy works alongside transaction timeouts:
+
 - Transaction timeout: 30 seconds (default)
 - Retry delays: Separate from transaction timeout
 - Total time: Transaction timeout + retry delays
@@ -280,6 +293,7 @@ The retry policy works alongside transaction timeouts:
 ### Rate Limiting
 
 Exponential backoff helps avoid rate limits:
+
 - Increasing delays give server time to recover
 - Jitter prevents synchronized retries
 - Reduces likelihood of hitting rate limits
@@ -320,7 +334,7 @@ If operations are retrying too often:
 ```typescript
 // Reduce max retries
 retryConfig: {
-  maxRetries: 2
+  maxRetries: 2;
 }
 ```
 
@@ -339,6 +353,7 @@ retryConfig: {
 ### Non-Retryable Errors Being Retried
 
 If you encounter errors that shouldn't be retried, please open an issue with:
+
 - Error message
 - Error type
 - Context of the operation
@@ -346,6 +361,7 @@ If you encounter errors that shouldn't be retried, please open an issue with:
 ## Future Enhancements
 
 Potential improvements:
+
 - Circuit breaker pattern
 - Adaptive retry strategies
 - Per-operation retry configs

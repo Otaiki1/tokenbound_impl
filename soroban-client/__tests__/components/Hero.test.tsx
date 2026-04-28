@@ -8,6 +8,10 @@ describe("Hero Component", () => {
 
     // Using a loose string match because text might be broken into spans/lines
     expect(screen.getByText(/Secure Tickets/i)).toBeInTheDocument();
+<<<<<<< HEAD
+    expect(screen.getByText(/Seamless Access/i)).toBeInTheDocument();
+=======
+>>>>>>> upstream/main
   });
 
   it("renders the call to action buttons", () => {

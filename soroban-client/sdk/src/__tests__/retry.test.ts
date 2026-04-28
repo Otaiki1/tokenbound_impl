@@ -23,7 +23,9 @@ describe("Retry Policy", () => {
     });
 
     it("should identify HTTP 5xx errors as retryable", () => {
-      expect(isRetryableError(new Error("HTTP 503 Service Unavailable"))).toBe(true);
+      expect(isRetryableError(new Error("HTTP 503 Service Unavailable"))).toBe(
+        true,
+      );
       expect(isRetryableError(new Error("502 Bad Gateway"))).toBe(true);
       expect(isRetryableError(new Error("504 Gateway Timeout"))).toBe(true);
     });
@@ -59,7 +61,11 @@ describe("Retry Policy", () => {
     });
 
     it("should respect maxDelayMs", () => {
-      const config = { ...DEFAULT_RETRY_CONFIG, enableJitter: false, maxDelayMs: 5000 };
+      const config = {
+        ...DEFAULT_RETRY_CONFIG,
+        enableJitter: false,
+        maxDelayMs: 5000,
+      };
 
       expect(calculateDelay(0, config)).toBe(1000);
       expect(calculateDelay(1, config)).toBe(2000);
@@ -72,7 +78,9 @@ describe("Retry Policy", () => {
       const config = { ...DEFAULT_RETRY_CONFIG, enableJitter: true };
 
       // Run multiple times to ensure jitter is applied
-      const delays = Array.from({ length: 10 }, () => calculateDelay(1, config));
+      const delays = Array.from({ length: 10 }, () =>
+        calculateDelay(1, config),
+      );
 
       // All delays should be around 2000ms but with variation
       const allSame = delays.every((d) => d === delays[0]);
@@ -187,7 +195,7 @@ describe("Retry Policy", () => {
 
       expect(console.warn).toHaveBeenCalledWith(
         expect.stringContaining("RPC call failed (test operation)"),
-        "Network error"
+        "Network error",
       );
     });
 
@@ -287,7 +295,9 @@ describe("Retry Policy", () => {
       expect(config.maxRetries).toBe(5);
       expect(config.initialDelayMs).toBe(DEFAULT_RETRY_CONFIG.initialDelayMs);
       expect(config.maxDelayMs).toBe(DEFAULT_RETRY_CONFIG.maxDelayMs);
-      expect(config.backoffMultiplier).toBe(DEFAULT_RETRY_CONFIG.backoffMultiplier);
+      expect(config.backoffMultiplier).toBe(
+        DEFAULT_RETRY_CONFIG.backoffMultiplier,
+      );
       expect(config.enableJitter).toBe(DEFAULT_RETRY_CONFIG.enableJitter);
     });
   });
