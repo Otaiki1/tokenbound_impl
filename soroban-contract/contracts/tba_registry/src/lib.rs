@@ -79,10 +79,12 @@ impl TbaRegistry {
         let account_key =
             account_storage_key(&env, &implementation_hash, &token_contract, token_id, &salt);
 
+        // STORAGE: pure lookup path. TTL is extended in `create_account`
+        // when the entry is written; bumping it on every read turned every
+        // `get_account` query (the most-called RPC against this contract)
+        // into a storage write.
         let deployed_account: Option<Address> = env.storage().persistent().get(&account_key);
         if let Some(deployed_addr) = deployed_account {
-            // Extend persistent TTL on read
-            upg::extend_persistent_ttl(&env, &account_key);
             return deployed_addr;
         }
 
@@ -159,7 +161,7 @@ impl TbaRegistry {
         let deployed_address = env
             .deployer()
             .with_current_contract(composite_salt)
-            .deploy(wasm_hash, constructor_args);
+            .deploy_v2(wasm_hash, constructor_args);
 
         // Initialize the deployed TBA account with NFT details
         let init_args = soroban_sdk::vec![
