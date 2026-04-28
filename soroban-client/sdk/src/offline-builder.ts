@@ -205,4 +205,63 @@ export class OfflineTransactionBuilder {
   inspect(prepared: PreparedTransaction) {
     return inspectTransaction(prepared);
   }
+
+  /**
+   * Estimates gas costs for an offline transaction.
+   * 
+   * Note: This provides a rough estimate based on transaction size and operation count.
+   * For precise estimates, use the online `sdk.estimateGas()` method which simulates
+   * against the actual contract state.
+   *
+   * @param account - The source account stub
+   * @param artifact - The contract call artifact
+   * @param baseFee - Base fee in stroops (default: 100)
+   * @param bufferMultiplier - Multiplier for max fee (default: 1.2)
+   * @returns Rough gas estimation
+   */
+  estimateGasOffline(
+    account: OfflineAccountStub,
+    artifact: ContractCallArtifact,
+    baseFee = 100,
+    bufferMultiplier = 1.2
+  ): {
+    estimatedFee: number;
+    maxFee: number;
+    transactionSizeBytes: number;
+    summary: string;
+  } {
+    // Build the transaction to estimate its size
+    const prepared = this.build(account, artifact, { fee: baseFee });
+    const decoded = decodeTransactionXdr(prepared);
+    
+    // Estimate transaction size
+    const txXdr = prepared.xdr;
+    const transactionSizeBytes = Math.ceil(txXdr.length * 0.75); // Base64 to bytes estimate
+    
+    // Estimate operation complexity based on args
+    const argSizeEstimate = artifact.args.reduce((sum, arg) => {
+      // Rough estimate: ScVal XDR is typically 100-500 bytes depending on type
+      return sum + 200;
+    }, 0);
+    
+    // Base cost calculation
+    const baseCost = baseFee;
+    // Size cost: ~1 stroop per 100 bytes
+    const sizeCost = Math.ceil(transactionSizeBytes / 100);
+    // Arg complexity cost
+    const complexityCost = Math.ceil(argSizeEstimate / 50);
+    
+    const estimatedFee = baseCost + sizeCost + complexityCost;
+    const maxFee = Math.ceil(estimatedFee * bufferMultiplier);
+    
+    const estimatedXlm = (estimatedFee / 10_000_000).toFixed(7);
+    const maxXlm = (maxFee / 10_000_000).toFixed(7);
+    
+    return {
+      estimatedFee,
+      maxFee,
+      transactionSizeBytes,
+      summary: `Estimated gas: ${estimatedXlm} XLM (max: ${maxXlm} XLM). Tx size: ${transactionSizeBytes} bytes.`,
+    };
+  }
 }

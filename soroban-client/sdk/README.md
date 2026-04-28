@@ -37,6 +37,37 @@ const sdk = createTokenboundSdk({
 const events = await sdk.eventManager.getAllEvents();
 ```
 
+### Invocation middleware hooks
+
+You can attach middleware to run logic before and after each invocation lifecycle stage
+(`simulate`, `read`, `prepareWrite`, `write`, `sendTransaction`, `waitForTransaction`).
+This is useful for request signing policies, logging, tracing, and metrics.
+
+```ts
+const sdk = createTokenboundSdk({
+  horizonUrl: process.env.NEXT_PUBLIC_HORIZON_URL!,
+  sorobanRpcUrl: process.env.NEXT_PUBLIC_SOROBAN_RPC_URL!,
+  networkPassphrase: process.env.NEXT_PUBLIC_NETWORK_PASSPHRASE!,
+  contracts: {
+    eventManager: process.env.NEXT_PUBLIC_EVENT_MANAGER_CONTRACT,
+  },
+  middleware: [
+    {
+      before: ({ stage, contract, method }) => {
+        console.log(`[before] ${stage} ${contract}.${method}`);
+      },
+      after: ({ stage, success, durationMs, error }) => {
+        if (!success) {
+          console.error(`[after] ${stage} failed in ${durationMs}ms`, error);
+          return;
+        }
+        console.log(`[after] ${stage} success in ${durationMs}ms`);
+      },
+    },
+  ],
+});
+```
+
 ### Creating an event
 
 ```ts
