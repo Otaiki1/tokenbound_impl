@@ -19,6 +19,9 @@ const SOROBAN_RPC_URL =
   process.env.NEXT_PUBLIC_SOROBAN_RPC_URL || "https://soroban-testnet.stellar.org";
 const NETWORK_PASSPHRASE =
   process.env.NEXT_PUBLIC_NETWORK_PASSPHRASE || Networks.TESTNET;
+const READ_ONLY_ACCOUNT =
+  process.env.NEXT_PUBLIC_SOROBAN_READ_ONLY_ACCOUNT ||
+  "GC2FS36XLXOUYURD3YLNWL6WBTBXCPN57FHN5X77JLRX7D2GF3PD7DMO";
 // contract ID of the deployed EventManager; set this in .env.local
 const EVENT_MANAGER_CONTRACT =
   process.env.NEXT_PUBLIC_EVENT_MANAGER_CONTRACT || "<MISSING_CONTRACT_ID>";
@@ -249,7 +252,7 @@ export async function getAllEvents(): Promise<Event[]> {
   });
 
   const tx = new TransactionBuilder(
-    { accountId: () => EVENT_MANAGER_CONTRACT, sequenceNumber: () => "0", incrementSequenceNumber: () => {} } as any,
+    { accountId: () => READ_ONLY_ACCOUNT, sequenceNumber: () => "0", incrementSequenceNumber: () => {} } as any,
     { fee: "100", networkPassphrase: NETWORK_PASSPHRASE }
   )
     .addOperation(operation)
@@ -515,7 +518,7 @@ export async function getActiveListings(): Promise<any[]> {
   });
 
   const tx = new TransactionBuilder(
-    { accountId: () => MARKETPLACE_CONTRACT, sequenceNumber: () => "0", incrementSequenceNumber: () => {} } as any,
+    { accountId: () => READ_ONLY_ACCOUNT, sequenceNumber: () => "0", incrementSequenceNumber: () => {} } as any,
     { fee: "100", networkPassphrase: NETWORK_PASSPHRASE }
   )
     .addOperation(operation)
