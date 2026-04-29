@@ -10,10 +10,8 @@
 
 use super::*;
 use fuzz_helpers::{arb_ascii_text, arb_i128_range, arb_u128_range, arb_u32_range, arb_u64_range, assert_invariant};
-use soroban_sdk::{testutils::Address as _, Address, Env, String, Vec};
+use soroban_sdk::{testutils::Address as _, testutils::Ledger as _, Address, Env, String, Vec};
 use proptest::prelude::*;
-use soroban_sdk::testutils::Ledger as _;
-use soroban_sdk::{testutils::Address as _, Address, Env, String, Vec};
 
 // Mock implementation for cross-contract calls
 #[contract]
@@ -37,7 +35,8 @@ fn setup(env: &Env) -> (EventManagerClient<'_>, Address) {
     let client = EventManagerClient::new(env, &contract_id);
     let mock_addr = env.register(MockContract, ());
     env.mock_all_auths();
-    let _ = client.try_initialize(&env.current_contract_address(), &mock_addr);
+    let admin = Address::generate(env);
+    let _ = client.try_initialize(&admin, &mock_addr);
     (client, mock_addr)
 }
 
@@ -74,7 +73,7 @@ proptest! {
             tiers: Vec::new(&env),
         };
 
-        let result = client.try_create_event(&params);
+        let result = client.try_create_event_v2(&params);
 
         if let Ok(Ok(event_id)) = result {
             let event = client.get_event(&event_id);
@@ -112,7 +111,7 @@ proptest! {
             tiers: Vec::new(&env),
         };
 
-        if let Ok(Ok(event_id)) = client.try_create_event(&params) {
+        if let Ok(Ok(event_id)) = client.try_create_event_v2(&params) {
             let purchase_res = client.try_purchase_tickets(&buyer, &event_id, &tier_index, &quantity);
             if purchase_res.is_ok() {
                 let event = client.get_event(&event_id);

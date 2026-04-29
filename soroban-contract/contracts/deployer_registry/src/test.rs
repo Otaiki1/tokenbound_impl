@@ -22,7 +22,6 @@ fn test_initial_state() {
 }
 
 #[test]
-#[should_panic(expected = "registry already initialized")]
 fn test_constructor_runs_once() {
     let env = Env::default();
     env.mock_all_auths();
@@ -33,9 +32,10 @@ fn test_constructor_runs_once() {
     // and admin — which Soroban's `env.register` does NOT re-run, so we
     // construct a tiny shim by manually invoking the entry point twice.
     let id = env.register(DeployerRegistry, (admin.clone(),));
-    // Re-invoke the constructor to confirm the guard fires.
+    // Re-invoke the constructor to confirm the guard fires and returns Err.
     env.as_contract(&id, || {
-        DeployerRegistry::__constructor(env.clone(), admin.clone());
+        let res = DeployerRegistry::__constructor(env.clone(), admin.clone());
+        assert_eq!(res, Err(Error::AlreadyInitialized));
     });
 }
 

@@ -22,6 +22,9 @@ pub enum MarketplaceError {
     InvalidRoyaltyPercentage = 10,
     RoyaltyConfigNotFound = 11,
     RoyaltyRecipientsExceeded = 12,
+    SellerNotTicketOwner = 13,
+    MarketStatsNotInitialized = 14,
+    PriceCapNotSet = 15,
 }
 
 #[derive(Clone)]
@@ -164,7 +167,7 @@ impl MarketplaceContract {
         ticket_contract: Address,
         token_id: i128,
         price: i128,
-    ) -> u32 {
+    ) -> Result<u32, MarketplaceError> {
         upg::require_not_paused(&env);
         seller.require_auth();
 
@@ -172,7 +175,7 @@ impl MarketplaceContract {
         let token_client = token::Client::new(&env, &ticket_contract);
         let balance = token_client.balance(&seller);
         if balance <= 0 {
-            panic!("Seller does not own any tickets from this contract");
+            return Err(MarketplaceError::SellerNotTicketOwner);
         }
 
         // STORAGE: PriceCap and Stats live in `instance` storage — cheap reads.
@@ -180,17 +183,17 @@ impl MarketplaceContract {
             .storage()
             .instance()
             .get(&DataKey::PriceCap)
-            .expect("Price cap not set");
+            .ok_or(MarketplaceError::PriceCapNotSet)?;
 
         if price_cap.active && price <= 0 {
-            panic!("Price must be positive");
+            return Err(MarketplaceError::PriceMustBePositive);
         }
 
         let mut stats: MarketStats = env
             .storage()
             .instance()
             .get(&DataKey::Stats)
-            .expect("market stats not initialized");
+            .ok_or(MarketplaceError::MarketStatsNotInitialized)?;
         let listing_id = stats.total_listings;
 
         let listing = Listing {
@@ -221,7 +224,7 @@ impl MarketplaceContract {
         env.events()
             .publish((Symbol::new(&env, "ListingCreated"),), event);
 
-        listing_id
+        Ok(listing_id)
     }
 
     pub fn purchase_ticket(
@@ -336,7 +339,7 @@ impl MarketplaceContract {
             .storage()
             .instance()
             .get(&DataKey::Stats)
-            .expect("market stats not initialized");
+            .ok_or(MarketplaceError::MarketStatsNotInitialized)?;
         let total_sales = stats.total_sales;
         let sale = Sale {
             buyer: buyer.clone(),
