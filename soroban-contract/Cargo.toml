@@ -18,6 +18,7 @@ members = [
   "contracts/dao_governance",
   "contracts/merkle_distributor",
   "contracts/payment_splitter",
+  "contracts/escrow",
   "contracts/reentrancy_guard",
   "contracts/multi_admin",
   "contracts/permit_wallet",
