@@ -15,14 +15,18 @@ import type {
   Bytes32Like,
   ContractCallArtifact,
   ContractName,
+  EventFilter,
   GasEstimateOptions,
   GasEstimation,
+  GetEventsOptions,
   InvokeOptions,
   InvocationAfterContext,
   InvocationBeforeContext,
   InvocationStage,
   PreparedTransaction,
+  SorobanEvent,
   SorobanSubmitResult,
+  StreamEventsOptions,
   TokenboundSdkConfig,
   TraceSpan,
   WriteInvokeOptions,
@@ -331,32 +335,6 @@ export class SorobanSdkCore {
         }
       },
     );
-      const tx = await this.buildInvokeTransaction(
-        options.source,
-        artifact,
-        source: options.source,
-        operation: async () => {
-          const tx = await this.buildInvokeTransaction(
-            options.source!,
-            artifact,
-            options,
-          );
-          const simulation = await this.rpcServer.simulateTransaction(tx);
-          if (rpc.Api.isSimulationError(simulation)) {
-            throw mapSdkError(contract, simulation.error, "Simulation failed.");
-          }
-          // Prepared write transactions are assembled from a successful simulation.
-          const prepared = rpc.assembleTransaction(tx, simulation).build();
-          return {
-            xdr: prepared.toXDR(),
-            networkPassphrase: this.config.networkPassphrase,
-            source: options.source!,
-          };
-        },
-      });
-    } catch (error) {
-      throw mapSdkError(contract, error, "Preparing transaction failed.");
-    }
   }
 
   async write(
@@ -401,69 +379,6 @@ export class SorobanSdkCore {
         } catch (error) {
           throw mapSdkError(contract, error, "Submitting transaction failed.");
         }
-    try {
-      return await this.runWithMiddleware({
-        stage: "write",
-        contract,
-        artifact,
-        source: options.source,
-        operation: async () => {
-          const prepared = await this.prepareWrite(contract, artifact, options);
-          const signedXdr = await options.signTransaction(prepared.xdr, {
-            networkPassphrase: prepared.networkPassphrase,
-            address: prepared.source,
-          });
-          const signedTx = TransactionBuilder.fromXDR(
-            signedXdr,
-            this.config.networkPassphrase,
-          );
-          const sent = await this.runWithMiddleware({
-            stage: "sendTransaction",
-            contract,
-            artifact,
-            source: options.source,
-            operation: async () =>
-              this.retryPolicy.execute(
-                () => this.rpcServer.sendTransaction(signedTx),
-                `sendTransaction ${contract}.${artifact.method}`,
-              ),
-          });
-          if (sent.status === "ERROR") {
-            throw new Error(
-              sent.errorResult
-                ? String(sent.errorResult)
-                : "Transaction submission failed.",
-            );
-          }
-          const confirmed = await this.runWithMiddleware({
-            stage: "waitForTransaction",
-            contract,
-            artifact,
-            source: options.source,
-            txHash: sent.hash,
-            operation: async () => this.waitForTransaction(sent.hash),
-          });
-          return {
-            hash: sent.hash,
-            ledger: confirmed.ledger,
-            status: confirmed.status,
-          };
-        },
-      });
-      const signedTx = TransactionBuilder.fromXDR(
-        signedXdr,
-        this.config.networkPassphrase,
-      );
-      const sent = await this.retryPolicy.execute(
-        () => this.rpcServer.sendTransaction(signedTx),
-        `sendTransaction ${contract}.${artifact.method}`
-      );
-      if (sent.status === "ERROR") {
-        throw new Error(
-          sent.errorResult
-            ? String(sent.errorResult)
-            : "Transaction submission failed.",
-        );
       }
     );
   }
@@ -582,5 +497,83 @@ export class SorobanSdkCore {
         }
       }
     );
+  }
+
+  async getEvents(
+    options: GetEventsOptions,
+  ): Promise<{ events: SorobanEvent[]; latestLedger: number }> {
+    const correlationId = this.resolveCorrelationId(options);
+    return this.trace(
+      "getEvents",
+      "tbaRegistry",
+      "getEvents",
+      correlationId,
+      {},
+      async () => {
+        try {
+          const request: rpc.Api.GetEventsRequest = {
+            startLedger: options.startLedger,
+            filters: options.filters as any,
+            pagination: {
+              cursor: options.cursor,
+              limit: options.limit,
+            },
+          };
+          const response = await this.retryPolicy.execute(
+            () => this.rpcServer.getEvents(request),
+            "getEvents"
+          );
+
+          return {
+            events: response.events.map((e) => ({
+              id: e.id,
+              type: e.type,
+              ledger: e.ledger,
+              ledgerClosedAt: e.ledgerClosedAt,
+              contractId: e.contractId,
+              topics: e.topic as string[],
+              value: typeof e.value === "string" ? e.value : e.value.toXDR("base64"),
+              inSuccessfulContractCall: e.inSuccessfulContractCall,
+            })),
+            latestLedger: response.latestLedger,
+          };
+        } catch (error) {
+          throw mapSdkError("tbaRegistry", error, "Fetching events failed.");
+        }
+      }
+    );
+  }
+
+  async *streamEvents(
+    options: StreamEventsOptions,
+  ): AsyncGenerator<SorobanEvent[], void, unknown> {
+    let currentCursor = options.cursor;
+    let startLedger = options.startLedger;
+    const pollInterval = options.pollInterval ?? 5000;
+
+    if (!currentCursor && !startLedger) {
+      const latest = await this.retryPolicy.execute(
+        () => this.rpcServer.getLatestLedger(),
+        "getLatestLedger"
+      );
+      startLedger = latest.sequence;
+    }
+
+    while (true) {
+      const { events, latestLedger } = await this.getEvents({
+        ...options,
+        cursor: currentCursor,
+        startLedger: currentCursor ? undefined : startLedger,
+      });
+
+      if (events.length > 0) {
+        currentCursor = events[events.length - 1].id;
+        yield events;
+      } else if (!currentCursor && latestLedger) {
+        startLedger = latestLedger;
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, pollInterval));
+    }
   }
 }
