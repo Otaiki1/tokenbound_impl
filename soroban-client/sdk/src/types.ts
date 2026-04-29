@@ -200,3 +200,32 @@ export interface TracingConfig {
    */
   readonly autoCorrelation?: boolean;
 }
+
+export interface EventFilter {
+  type?: "contract" | "system" | "diagnostic";
+  contractIds?: string[];
+  topics?: string[][];
+}
+
+export interface GetEventsOptions extends InvokeOptions {
+  startLedger?: number;
+  filters?: EventFilter[];
+  cursor?: string;
+  limit?: number;
+}
+
+export interface SorobanEvent {
+  id: string;
+  type: string;
+  ledger: number;
+  ledgerClosedAt: string;
+  contractId: string;
+  topics: string[];
+  value: string;
+  inSuccessfulContractCall: boolean;
+}
+
+export interface StreamEventsOptions extends GetEventsOptions {
+  /** Polling interval in milliseconds. Defaults to 5000. */
+  pollInterval?: number;
+}
