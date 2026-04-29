@@ -1,55 +1,70 @@
-import React, { useContext, useMemo, useState } from 'react'
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '../../Components/shared/card'
-import { Button } from '../../Components/shared/button'
-import Layout from '../../Components/dashboard/layout'
-import { KitContext } from '../../context/kit-context'
-import {ethers} from 'ethers'
-import toast from 'react-hot-toast'
-import { cairo } from 'starknet'
-
+import React, { useContext, useMemo, useState } from 'react';
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from '../../Components/shared/card';
+import { Button } from '../../Components/shared/button';
+import Layout from '../../Components/dashboard/layout';
+import { KitContext } from '../../context/kit-context';
+import { ethers } from 'ethers';
+import { toast } from 'sonner';
+import { cairo } from 'starknet';
+import { TransactionStatus } from '../../Components/shared/transaction-status';
 
 const CreateEvent = () => {
-    const {eventContract} = useContext(KitContext)
+  const { eventContract } = useContext(KitContext);
 
-    function padWithZeros(value) {
-        return BigInt(value + '0'.repeat(18));
-      }
+  function padWithZeros(value) {
+    return BigInt(value + '0'.repeat(18));
+  }
 
+  const [txStatus, setTxStatus] = useState({ status: 'idle', message: '' });
+  const [formData, setFormData] = useState({
+    theme: '',
+    total_ticket: '',
+    type: '',
+    startTime: '',
+    endTime: '',
+    ticketPrice: '',
+  });
 
-    const [formData, setFormData] = useState({
-        theme: '',
-        total_ticket: '',
-        type: '',
-        startTime: '',
-        endTime: '',
-        ticketPrice: ''
-    })
-    
-    const inputChange = (e) => {
-        setFormData((prevState) => ({
-            ...prevState, [e.target.name]: e.target.value
-        }))
+  const inputChange = e => {
+    setFormData(prevState => ({
+      ...prevState,
+      [e.target.name]: e.target.value,
+    }));
+  };
+
+  const handleSubmit = async e => {
+    e.preventDefault();
+
+    const _start_date = new Date(formData.startTime).getTime() / 1000;
+    const _end_date = new Date(formData.endTime).getTime() / 1000;
+    setTxStatus({ status: 'pending', message: 'Creating event...' });
+    const toast1 = toast.loading('Creating Events');
+
+    try {
+      await eventContract.create_event(
+        formData.theme,
+        formData.type,
+        _start_date,
+        _end_date,
+        cairo.uint256(formData.ticketPrice * 1e18),
+        formData.total_ticket
+      );
+      setTxStatus({ status: 'success', message: 'Event created successfully!' });
+      toast.dismiss(toast1);
+      toast.success('Event Created');
+    } catch (error) {
+      setTxStatus({ status: 'error', message: error.message });
+      toast.dismiss(toast1);
+      toast.error(error.message);
     }
-
-    const handleSubmit = async (e) => {
-        e.preventDefault()
-
-        const _start_date = new Date(formData.startTime).getTime() / 1000;
-        const _end_date = new Date(formData.endTime).getTime() / 1000;
-        const toast1 = toast.loading('Creating Events')
-
-        
-        try {
-           
-            await eventContract.create_event(formData.theme, formData.type, _start_date, _end_date, cairo.uint256(formData.ticketPrice * 1e18), formData.total_ticket)
-            toast.remove(toast1);
-            toast.success("Event Created")
-
-        } catch (error) {
-            toast.remove(toast1)
-            toast.error(error.message)
-        }
-    }
+  };
 
     return (
         <Layout>
@@ -71,7 +86,7 @@ const CreateEvent = () => {
                                 />
                             </div>
                             <div className="space-y-2 flex flex-col">
-                                <label htmlFor="organizer" className="text-deep-blue">Expected Attendee</label>
+                                <label htmlFor="total_ticket" className="text-deep-blue">Expected Attendee</label>
                                 <input 
                                     id="total_ticket" placeholder="100" type='number' 
                                     name='total_ticket'
@@ -117,7 +132,7 @@ const CreateEvent = () => {
                                 />
                             </div>
                             <div className="space-y-2 flex flex-col">
-                                <label htmlFor="start-date" className="text-deep-blue">End Date</label>
+                                <label htmlFor="end-date" className="text-deep-blue">End Date</label>
                                 <input 
                                     type='date' 
                                     name='endTime'
@@ -132,8 +147,19 @@ const CreateEvent = () => {
                     </CardFooter>
                 </Card>
             </div>
-        </Layout>
-    )
-}
+          )}
+          <CardFooter className="flex justify-end">
+            <Button
+              onClick={handleSubmit}
+              className="text-primary hover:text-deep-blue bg-deep-blue "
+            >
+              Create Event
+            </Button>
+          </CardFooter>
+        </Card>
+      </div>
+    </Layout>
+  );
+};
 
-export default CreateEvent
+export default CreateEvent;

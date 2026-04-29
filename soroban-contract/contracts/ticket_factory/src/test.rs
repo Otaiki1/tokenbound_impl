@@ -12,10 +12,7 @@ extern crate alloc;
 extern crate std;
 
 use crate::{TicketFactory, TicketFactoryClient};
-use soroban_sdk::{
-    testutils::Address as _,
-    Address, BytesN, Env,
-};
+use soroban_sdk::{testutils::Address as _, Address, BytesN, Env};
 
 // Import the Ticket NFT contract WASM for testing
 mod ticket_nft_contract {
@@ -32,7 +29,9 @@ fn setup_test() -> (Env, Address, TicketFactoryClient<'static>, BytesN<32>) {
     let admin = Address::generate(&env);
 
     // Upload the Ticket NFT WASM and get its hash
-    let wasm_hash = env.deployer().upload_contract_wasm(ticket_nft_contract::WASM);
+    let wasm_hash = env
+        .deployer()
+        .upload_contract_wasm(ticket_nft_contract::WASM);
 
     // Register the factory contract with constructor args
     let factory_address = env.register(TicketFactory, (&admin, &wasm_hash));

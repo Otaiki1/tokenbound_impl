@@ -10,6 +10,37 @@ NEXT_PUBLIC_NETWORK_PASSPHRASE="Test SDF Network ; September 2015"
 NEXT_PUBLIC_EVENT_MANAGER_CONTRACT=C...   # address of deployed EventManager contract
 ```
 
+## RPC Failover Configuration
+
+The application supports automatic RPC endpoint failover for high availability. You can configure multiple Horizon and Soroban RPC URLs to ensure the application continues working even if some endpoints become unavailable.
+
+### Environment Variables
+
+```env
+# Multiple Horizon URLs (comma-separated for failover)
+NEXT_PUBLIC_HORIZON_URL=https://horizon-testnet.stellar.org,https://horizon-testnet-2.stellar.org
+
+# Multiple Soroban RPC URLs (comma-separated for failover)
+NEXT_PUBLIC_SOROBAN_RPC_URL=https://soroban-testnet.stellar.org,https://soroban-testnet-2.stellar.org
+```
+
+### How It Works
+
+- The system automatically performs health checks on all configured endpoints
+- Failed endpoints are temporarily marked as unhealthy and avoided
+- Requests are automatically routed to the healthiest available endpoint
+- Endpoints recover automatically when they become healthy again
+- Priority-based selection ensures primary endpoints are preferred when available
+
+### Configuration Options
+
+The RPC failover manager can be customized by modifying the `DEFAULT_RPC_CONFIG` in `lib/rpc-failover.ts`:
+
+- `healthCheckInterval`: How often to check endpoint health (default: 30 seconds)
+- `maxConsecutiveFailures`: Number of failures before marking endpoint unhealthy (default: 3)
+- `healthCheckTimeout`: Timeout for individual health checks (default: 5 seconds)
+- `circuitBreakerThreshold`: Consecutive failures to trigger circuit breaker (default: 3)
+
 Once your env file is populated, start the development server:
 
 ```bash
@@ -23,6 +54,39 @@ bun dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+
+## TypeScript SDK
+
+The frontend now includes an internal typed SDK package at [`soroban-client/sdk`](./sdk) for contract interactions.
+
+- Generated contract metadata lives in `sdk/src/generated/contracts.ts`
+- Shared transaction building and submission helpers live in `sdk/src/core.ts`
+- Typed wrappers for Event Manager, Ticket Factory, Ticket NFT, TBA Registry, and TBA Account live in `sdk/src/contracts.ts`
+- The legacy [`lib/soroban.ts`](./lib/soroban.ts) module now delegates to the SDK so existing app code keeps working
+
+Example:
+
+```ts
+import { createTokenboundSdk } from "@crowdpass/tokenbound-sdk";
+
+const sdk = createTokenboundSdk({
+  horizonUrl: process.env.NEXT_PUBLIC_HORIZON_URL!,
+  sorobanRpcUrl: process.env.NEXT_PUBLIC_SOROBAN_RPC_URL!,
+  networkPassphrase: process.env.NEXT_PUBLIC_NETWORK_PASSPHRASE!,
+  simulationSource: process.env.NEXT_PUBLIC_SOROBAN_SIM_SOURCE,
+  contracts: {
+    eventManager: process.env.NEXT_PUBLIC_EVENT_MANAGER_CONTRACT,
+  },
+});
+
+const events = await sdk.eventManager.getAllEvents();
+```
+
+Regenerate the contract metadata with:
+
+```bash
+npm run sdk:generate-types
+```
 
 You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
 

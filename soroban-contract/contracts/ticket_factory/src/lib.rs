@@ -14,7 +14,19 @@
 
 #![no_std]
 
-use soroban_sdk::{contract, contractimpl, contracttype, Address, BytesN, Env, IntoVal, Val, Vec};
+use soroban_sdk::{
+    contract, contracterror, contractimpl, contracttype, Address, Bytes, BytesN, Env, IntoVal, Symbol, Val, Vec,
+};
+
+use upgradeable as upg;
+
+/// Error codes for the Ticket Factory contract
+#[contracterror]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum Error {
+    NotInitialized = 1,
+    Unauthorized = 2,
+}
 
 /// Storage keys for the contract state
 #[contracttype]
@@ -44,6 +56,8 @@ impl TicketFactory {
     /// * `admin` - Address that can deploy new ticket contracts
     /// * `ticket_wasm_hash` - WASM hash of the Ticket NFT contract
     pub fn __constructor(env: Env, admin: Address, ticket_wasm_hash: BytesN<32>) {
+        upg::set_admin(&env, &admin);
+        upg::init_version(&env);
         env.storage().instance().set(&DataKey::Admin, &admin);
         env.storage()
             .instance()
@@ -51,9 +65,11 @@ impl TicketFactory {
         env.storage().instance().set(&DataKey::TotalTickets, &0u32);
 
         // Extend instance TTL
-        env.storage().instance().extend_ttl(
-            30 * 24 * 60 * 60 / 5,  // ~30 days
-            100 * 24 * 60 * 60 / 5, // ~100 days
+        upg::extend_instance_ttl(&env);
+
+        env.events().publish(
+            (Symbol::new(&env, "factory_init"),),
+            admin,
         );
     }
 
@@ -69,9 +85,13 @@ impl TicketFactory {
     ///
     /// # Authorization
     /// Requires admin authorization
-    pub fn deploy_ticket(env: Env, minter: Address, salt: BytesN<32>) -> Address {
+    pub fn deploy_ticket(env: Env, minter: Address, salt: BytesN<32>) -> Result<Address, Error> {
         // Authorize: only admin can deploy
-        let admin: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(Error::NotInitialized)?;
         admin.require_auth();
 
         // Get the WASM hash for deployment
@@ -79,7 +99,7 @@ impl TicketFactory {
             .storage()
             .instance()
             .get(&DataKey::TicketWasmHash)
-            .unwrap();
+            .ok_or(Error::NotInitialized)?;
 
         // Prepare constructor arguments for the Ticket NFT contract
         // The minter address is passed to initialize the NFT contract
@@ -97,8 +117,9 @@ impl TicketFactory {
             .storage()
             .instance()
             .get(&DataKey::TotalTickets)
-            .unwrap_or(0)
-            + 1;
+            .unwrap_or(0u32)
+            .checked_add(1)
+            .unwrap();
 
         // Store event_id -> contract address mapping in persistent storage
         env.storage()
@@ -106,11 +127,7 @@ impl TicketFactory {
             .set(&DataKey::TicketContract(ticket_id), &deployed_address);
 
         // Extend persistent TTL
-        env.storage().persistent().extend_ttl(
-            &DataKey::TicketContract(ticket_id),
-            30 * 24 * 60 * 60 / 5,  // threshold
-            100 * 24 * 60 * 60 / 5, // extend_to
-        );
+        upg::extend_persistent_ttl(&env, &DataKey::TicketContract(ticket_id));
 
         // Update total count in instance storage
         env.storage()
@@ -118,11 +135,14 @@ impl TicketFactory {
             .set(&DataKey::TotalTickets, &ticket_id);
 
         // Extend instance TTL on update
-        env.storage()
-            .instance()
-            .extend_ttl(30 * 24 * 60 * 60 / 5, 100 * 24 * 60 * 60 / 5);
+        upg::extend_instance_ttl(&env);
 
-        deployed_address
+        env.events().publish(
+            (Symbol::new(&env, "ticket_deployed"), ticket_id),
+            deployed_address.clone(),
+        );
+
+        Ok(deployed_address)
     }
 
     /// Get the ticket contract address for a specific event
@@ -137,6 +157,22 @@ impl TicketFactory {
         env.storage()
             .persistent()
             .get(&DataKey::TicketContract(event_id))
+    }
+
+    /// Verify an Ed25519 signature for off-chain authorization
+    ///
+    /// Facilitates the verification of off-chain signed data, such as
+    /// oracle price feeds or organizer-signed ticket vouchers.
+    ///
+    /// # Arguments
+    /// * `env` - The contract environment
+    /// * `public_key` - The Ed25519 public key of the signer
+    /// * `payload` - The arbitrary message payload that was signed
+    /// * `signature` - The 64-byte Ed25519 signature
+    ///
+    /// Panics if the signature is invalid.
+    pub fn verify_offchain_signature(env: Env, public_key: BytesN<32>, payload: Bytes, signature: BytesN<64>) {
+        env.crypto().ed25519_verify(&public_key, &payload, &signature);
     }
 
     /// Get the total number of ticket contracts deployed
@@ -160,15 +196,68 @@ impl TicketFactory {
     ///
     /// # Returns
     /// The admin address
-    pub fn get_admin(env: Env) -> Address {
-        let admin: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
+    pub fn get_admin(env: Env) -> Result<Address, Error> {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(Error::NotInitialized)?;
 
         // Extend instance TTL on read
-        env.storage()
-            .instance()
-            .extend_ttl(30 * 24 * 60 * 60 / 5, 100 * 24 * 60 * 60 / 5);
+        upg::extend_instance_ttl(&env);
 
-        admin
+        Ok(admin)
+    }
+
+    // ── Upgrade / admin ──────────────────────────────────────────────────────
+
+    pub fn schedule_upgrade(env: Env, new_wasm_hash: BytesN<32>) {
+        upg::schedule_upgrade(&env, new_wasm_hash);
+    }
+
+    pub fn cancel_upgrade(env: Env) {
+        upg::cancel_upgrade(&env);
+    }
+
+    pub fn commit_upgrade(env: Env) {
+        upg::commit_upgrade(&env);
+    }
+
+    /// Immediate (fast-path) upgrade. Admin-only, no timelock — see
+    /// `upgradeable::upgrade` for the full security note. Reserve for
+    /// emergencies; prefer `schedule_upgrade` + `commit_upgrade` for
+    /// routine upgrades.
+    pub fn upgrade(env: Env, new_wasm_hash: BytesN<32>) {
+        upg::upgrade(&env, new_wasm_hash);
+    }
+
+    /// Apply post-upgrade state-shape migrations and bump the version to
+    /// `target_version`. Admin-only; rejects downgrades.
+    pub fn migrate(env: Env, target_version: u32) {
+        upg::require_admin(&env);
+        upg::require_version_increase(&env, target_version);
+
+        match target_version {
+            _ => {}
+        }
+
+        upg::migration_completed(&env, target_version);
+    }
+
+    pub fn pause(env: Env) {
+        upg::pause(&env);
+    }
+
+    pub fn unpause(env: Env) {
+        upg::unpause(&env);
+    }
+
+    pub fn transfer_admin(env: Env, new_admin: Address) {
+        upg::transfer_admin(&env, new_admin);
+    }
+
+    pub fn version(env: Env) -> u32 {
+        upg::get_version(&env)
     }
 }
 
