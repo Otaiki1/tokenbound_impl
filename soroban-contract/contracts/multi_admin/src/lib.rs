@@ -53,7 +53,7 @@ fn is_admin(env: &Env, address: &Address) -> bool {
     let count = admins.len();
     for i in 0..count {
         let candidate = admins.get(i).unwrap();
-        if candidate == address {
+        if candidate == *address {
             return true;
         }
     }
@@ -64,7 +64,7 @@ fn find_admin_index(admins: &Vec<Address>, address: &Address) -> Option<u32> {
     let len = admins.len();
     for i in 0..len {
         let candidate = admins.get(i).unwrap();
-        if candidate == address {
+        if candidate == *address {
             return Some(i);
         }
     }
@@ -72,7 +72,7 @@ fn find_admin_index(admins: &Vec<Address>, address: &Address) -> Option<u32> {
 }
 
 fn require_admin(env: &Env, caller: &Address) -> Result<(), Error> {
-    caller.require_auth();
+    (*caller).require_auth();
     if !is_admin(env, caller) {
         return Err(Error::Unauthorized);
     }
@@ -173,3 +173,6 @@ impl MultiAdmin {
         load_admins(&env)
     }
 }
+
+#[cfg(test)]
+mod test;

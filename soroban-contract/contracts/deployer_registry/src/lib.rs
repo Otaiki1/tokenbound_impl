@@ -92,6 +92,8 @@ pub enum Error {
     /// `remove_deployer` was called for an address that is not on the
     /// allowlist.
     DeployerNotFound = 5,
+    /// `__constructor` or `initialize` was called but the registry is already initialized.
+    AlreadyInitialized = 6,
 }
 
 /// Storage keys for the Deployer Registry.
@@ -148,10 +150,10 @@ impl DeployerRegistry {
     /// Panics if the contract has already been initialised (i.e. the
     /// `Admin` slot is already populated). The constructor is expected to
     /// be called exactly once per deployment.
-    pub fn __constructor(env: Env, admin: Address) {
+    pub fn __constructor(env: Env, admin: Address) -> Result<(), Error> {
         admin.require_auth();
         if env.storage().instance().has(&DataKey::Admin) {
-            panic!("registry already initialized");
+            return Err(Error::AlreadyInitialized);
         }
 
         env.storage().instance().set(&DataKey::Admin, &admin);
@@ -159,6 +161,7 @@ impl DeployerRegistry {
 
         env.events()
             .publish((symbol_short!("registry"), symbol_short!("init")), admin);
+        Ok(())
     }
 
     // ── Allowlist management ─────────────────────────────────────────────────

@@ -22,7 +22,7 @@ fn test_initialize_sets_admin() {
     let dummy_id = env.register(DummyContract, ());
 
     env.as_contract(&dummy_id, || {
-        initialize(&env, &admin);
+        initialize(&env, &admin).unwrap();
         assert!(is_admin(&env, &admin));
         assert!(has_role(&env, &Role::Admin, &admin));
     });
@@ -34,7 +34,7 @@ fn test_initialize_grants_all_roles_to_admin() {
     let dummy_id = env.register(DummyContract, ());
 
     env.as_contract(&dummy_id, || {
-        initialize(&env, &admin);
+        initialize(&env, &admin).unwrap();
         
         assert!(has_role(&env, &Role::Upgrader, &admin));
         assert!(has_role(&env, &Role::Pauser, &admin));
@@ -46,16 +46,16 @@ fn test_initialize_grants_all_roles_to_admin() {
 }
 
 #[test]
-#[should_panic(expected = "already initialized")]
 fn test_initialize_fails_if_already_initialized() {
     let (env, admin) = setup_test();
     let dummy_id = env.register(DummyContract, ());
 
     env.as_contract(&dummy_id, || {
-        initialize(&env, &admin);
-        // Second initialization should panic
+        initialize(&env, &admin).unwrap();
+        // Second initialization should return Err
         let admin2 = Address::generate(&env);
-        initialize(&env, &admin2);
+        let result = initialize(&env, &admin2);
+        assert_eq!(result, Err(AccessControlError::AlreadyInitialized));
     });
 }
 
@@ -66,8 +66,8 @@ fn test_grant_role() {
     let dummy_id = env.register(DummyContract, ());
 
     env.as_contract(&dummy_id, || {
-        initialize(&env, &admin);
-        grant_role(&env, &Role::Manager, &new_manager, &admin);
+        initialize(&env, &admin).unwrap();
+        grant_role(&env, &Role::Manager, &new_manager, &admin).unwrap();
         assert!(has_role(&env, &Role::Manager, &new_manager));
     });
 }
@@ -79,16 +79,16 @@ fn test_revoke_role() {
     let dummy_id = env.register(DummyContract, ());
 
     env.as_contract(&dummy_id, || {
-        initialize(&env, &admin);
+        initialize(&env, &admin).unwrap();
         // Grant the role
-        grant_role(&env, &Role::Manager, &manager, &admin);
+        grant_role(&env, &Role::Manager, &manager, &admin).unwrap();
         assert!(has_role(&env, &Role::Manager, &manager));
     });
 
     // Re-enter contract context for revoke (fresh auth context)
     env.as_contract(&dummy_id, || {
         // Revoke the role
-        revoke_role(&env, &Role::Manager, &manager, &admin);
+        revoke_role(&env, &Role::Manager, &manager, &admin).unwrap();
         assert!(!has_role(&env, &Role::Manager, &manager));
     });
 }
@@ -100,18 +100,17 @@ fn test_renounce_role() {
     let dummy_id = env.register(DummyContract, ());
 
     env.as_contract(&dummy_id, || {
-        initialize(&env, &admin);
-        grant_role(&env, &Role::Manager, &manager, &admin);
+        initialize(&env, &admin).unwrap();
+        grant_role(&env, &Role::Manager, &manager, &admin).unwrap();
         assert!(has_role(&env, &Role::Manager, &manager));
         
         // Manager renounces their own role
-        renounce_role(&env, &Role::Manager, &manager);
+        renounce_role(&env, &Role::Manager, &manager).unwrap();
         assert!(!has_role(&env, &Role::Manager, &manager));
     });
 }
 
 #[test]
-#[should_panic]
 fn test_non_admin_cannot_grant_role() {
     let (env, admin) = setup_test();
     let non_admin = Address::generate(&env);
@@ -119,9 +118,10 @@ fn test_non_admin_cannot_grant_role() {
     let dummy_id = env.register(DummyContract, ());
 
     env.as_contract(&dummy_id, || {
-        initialize(&env, &admin);
-        // This should panic because non_admin doesn't have admin role
-        grant_role(&env, &Role::Manager, &target, &non_admin);
+        initialize(&env, &admin).unwrap();
+        // This should return Err because non_admin doesn't have admin role
+        let result = grant_role(&env, &Role::Manager, &target, &non_admin);
+        assert_eq!(result, Err(AccessControlError::MissingRequiredRole));
     });
 }
 
@@ -132,8 +132,8 @@ fn test_transfer_admin() {
     let dummy_id = env.register(DummyContract, ());
 
     env.as_contract(&dummy_id, || {
-        initialize(&env, &admin);
-        transfer_admin(&env, &new_admin, &admin);
+        initialize(&env, &admin).unwrap();
+        transfer_admin(&env, &new_admin, &admin).unwrap();
         
         assert!(is_admin(&env, &new_admin));
         assert!(!is_admin(&env, &admin));
@@ -147,8 +147,8 @@ fn test_has_any_role() {
     let dummy_id = env.register(DummyContract, ());
 
     env.as_contract(&dummy_id, || {
-        initialize(&env, &admin);
-        grant_role(&env, &Role::Manager, &manager, &admin);
+        initialize(&env, &admin).unwrap();
+        grant_role(&env, &Role::Manager, &manager, &admin).unwrap();
         
         let roles = [Role::Manager, Role::Minter];
         assert!(has_any_role(&env, &roles, &manager));
@@ -164,7 +164,7 @@ fn test_get_account_roles() {
     let dummy_id = env.register(DummyContract, ());
 
     env.as_contract(&dummy_id, || {
-        initialize(&env, &admin);
+        initialize(&env, &admin).unwrap();
         
         let roles = get_account_roles(&env, &admin);
         

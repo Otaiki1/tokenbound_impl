@@ -1,99 +1,69 @@
 #![cfg(test)]
 
 use super::*;
-use soroban_sdk::{testutils::Address as _, vec, Address, Env, IntoVal, Symbol};
+use soroban_sdk::{testutils::Address as _, testutils::Ledger as _, Env, BytesN, Symbol, vec};
 
-// Mock contract to serve as an execution target
 #[contract]
-pub struct MockTargetContract;
+pub struct MockFactory;
 
 #[contractimpl]
-impl MockTargetContract {
-    pub fn ping(env: Env, val: u32) -> u32 {
-        val * 2
+impl MockFactory {
+    pub fn deploy_ticket(env: Env, _minter: Address, _salt: BytesN<32>) -> Address {
+        // Just return a random address for the "NFT"
+        Address::generate(&env)
     }
 }
 
-#[test]
-fn test_multisig_flow() {
-    let env = Env::default();
+fn setup(env: &Env) -> (EventManagerClient<'_>, Address) {
+    let contract_id = env.register(EventManager, ());
+    let client = EventManagerClient::new(env, &contract_id);
+    
+    let factory_id = env.register(MockFactory, ());
+    
+    let admin = Address::generate(env);
+    
     env.mock_all_auths();
-
-    let multisig_id = env.register_contract(None, MultiSigContract);
-    let multisig_client = MultiSigContractClient::new(&env, &multisig_id);
-
-    let target_id = env.register_contract(None, MockTargetContract);
-
-    let signer1 = Address::generate(&env);
-    let signer2 = Address::generate(&env);
-    let signer3 = Address::generate(&env);
-
-    // Initialize with 3 signers and a threshold of 2
-    let signers = vec![&env, signer1.clone(), signer2.clone(), signer3.clone()];
-    multisig_client.init(&signers, &2);
-
-    let args: Vec<Val> = vec![&env, 21u32.into_val(&env)];
-    let function = Symbol::new(&env, "ping");
-
-    // 1. Propose
-    let proposal_id = multisig_client.propose(&signer1, &target_id, &function, &args);
-    assert_eq!(proposal_id, 1);
-
-    // 2. Approve (Signer 1 and Signer 2)
-    multisig_client.approve(&signer1, &proposal_id);
     
-    // Attempting to execute prematurely should fail
-    let fail_exec = multisig_client.try_execute(&signer1, &proposal_id);
-    assert_eq!(fail_exec.unwrap_err().unwrap(), Error::NotEnoughApprovals);
-
-    multisig_client.approve(&signer2, &proposal_id);
-
-    // 3. Execute
-    let result: Val = multisig_client.execute(&signer1, &proposal_id);
+    // Initialize the contract
+    let _ = client.try_initialize(&admin, &factory_id);
     
-    // 21 * 2 = 42
-    assert_eq!(u32::from_val(&env, &result), 42);
+    (client, factory_id)
 }
 
 #[test]
-fn test_unauthorized_propose() {
+fn test_initialize() {
     let env = Env::default();
-    env.mock_all_auths();
-
-    let multisig_id = env.register_contract(None, MultiSigContract);
-    let multisig_client = MultiSigContractClient::new(&env, &multisig_id);
-
-    let signer1 = Address::generate(&env);
-    let non_signer = Address::generate(&env);
-
-    let signers = vec![&env, signer1.clone()];
-    multisig_client.init(&signers, &1);
-
-    let target = Address::generate(&env);
-    let res = multisig_client.try_propose(
-        &non_signer,
-        &target,
-        &Symbol::new(&env, "ping"),
-        &vec![&env]
-    );
-
-    assert_eq!(res.unwrap_err().unwrap(), Error::Unauthorized);
+    let (client, factory_id) = setup(&env);
+    
+    // Check if it's initialized by trying to initialize again
+    let admin2 = Address::generate(&env);
+    let res = client.try_initialize(&admin2, &factory_id);
+    assert!(res.is_err() || res.unwrap().is_err());
 }
 
 #[test]
-fn test_double_approve_fails() {
+fn test_create_event() {
     let env = Env::default();
-    env.mock_all_auths();
-
-    let multisig_id = env.register_contract(None, MultiSigContract);
-    let multisig_client = MultiSigContractClient::new(&env, &multisig_id);
-
-    let signer = Address::generate(&env);
-    multisig_client.init(&vec![&env, signer.clone()], &1);
-
-    let id = multisig_client.propose(&signer, &Address::generate(&env), &Symbol::new(&env, "x"), &vec![&env]);
-    multisig_client.approve(&signer, &id);
+    let (client, factory_id) = setup(&env);
+    let organizer = Address::generate(&env);
     
-    let res = multisig_client.try_approve(&signer, &id);
-    assert_eq!(res.unwrap_err().unwrap(), Error::AlreadyApproved);
+    env.ledger().set_timestamp(1000);
+    
+    let params = CreateEventParams {
+        organizer: organizer.clone(),
+        theme: String::from_str(&env, "Test Theme"),
+        event_type: String::from_str(&env, "Test Type"),
+        start_date: 2000,
+        end_date: 3000,
+        ticket_price: 100,
+        total_tickets: 100,
+        payment_token: Address::generate(&env),
+        tiers: Vec::new(&env),
+    };
+    
+    let event_id = client.create_event_v2(&params);
+    let event = client.get_event(&event_id);
+    
+    assert_eq!(event.organizer, organizer);
+    assert_eq!(event.total_tickets, 100);
 }

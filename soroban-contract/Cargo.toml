@@ -8,6 +8,7 @@ members = [
   "contracts/upgradeable_reference",
   "contracts/tba_account",
   "contracts/tba_registry",
+  "contracts/deployer_registry",
   "contracts/ticket_nft",
   "contracts/poap_nft",
   "contracts/ticket_factory",

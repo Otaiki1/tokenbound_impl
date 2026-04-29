@@ -93,11 +93,11 @@ fn test_update_royalty_recipient() {
     
     // Update recipient address
     let new_recipient = Address::generate(&env);
-    client.update_royalty_recipient(&admin, 0, &new_recipient);
+    client.update_royalty_recipient(&admin, &0, &new_recipient);
     
     let config = client.get_royalty_config().unwrap();
-    assert_eq!(config.recipients.get(0).recipient, new_recipient);
-    assert_eq!(config.recipients.get(0).percentage, 500);
+    assert_eq!(config.recipients.get(0).unwrap().recipient, new_recipient);
+    assert_eq!(config.recipients.get(0).unwrap().percentage, 500);
 }
 
 #[test]
@@ -120,10 +120,10 @@ fn test_update_royalty_percentage() {
     client.initialize_royalty_config(&admin, &recipients);
     
     // Update percentage
-    client.update_royalty_percentage(&admin, 0, 800); // Change to 8%
+    client.update_royalty_percentage(&admin, &0, &800); // Change to 8%
     
     let config = client.get_royalty_config().unwrap();
-    assert_eq!(config.recipients.get(0).percentage, 800);
+    assert_eq!(config.recipients.get(0).unwrap().percentage, 800);
     assert_eq!(config.total_percentage, 800);
 }
 
@@ -195,12 +195,12 @@ fn test_toggle_royalty_config() {
     client.initialize_royalty_config(&admin, &recipients);
     
     // Deactivate
-    client.toggle_royalty_config(&admin, false);
+    client.toggle_royalty_config(&admin, &false);
     let config = client.get_royalty_config().unwrap();
     assert!(!config.active);
     
     // Reactivate
-    client.toggle_royalty_config(&admin, true);
+    client.toggle_royalty_config(&admin, &true);
     let config = client.get_royalty_config().unwrap();
     assert!(config.active);
 }

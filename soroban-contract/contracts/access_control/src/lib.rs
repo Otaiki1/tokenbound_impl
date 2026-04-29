@@ -38,9 +38,21 @@
 
 #![no_std]
 
-use soroban_sdk::{contracttype, symbol_short, Address, Env, Symbol};
+use soroban_sdk::{contracterror, contracttype, symbol_short, Address, Env, Symbol};
 
 pub mod rbac_integration;
+
+#[contracterror]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[repr(u32)]
+pub enum AccessControlError {
+    MissingRequiredRole = 1,
+    AlreadyInitialized = 2,
+    NotAuthorized = 3,
+    CannotPause = 4,
+    CannotUnpause = 5,
+    CannotUpgrade = 6,
+}
 
 // ── Role Definition ────────────────────────────────────────────────────────────
 
@@ -146,26 +158,28 @@ pub fn require_role(env: &Env, role: &Role) {
 
 /// Require that the caller has a specific role (with proper auth check)
 /// This is the main function to use - it checks both authentication and authorization
-pub fn require_role_auth(env: &Env, role: &Role, account: &Address) {
+pub fn require_role_auth(env: &Env, role: &Role, account: &Address) -> Result<(), AccessControlError> {
     account.require_auth();
     if !has_role(env, role, account) {
-        panic!("account missing required role");
+        return Err(AccessControlError::MissingRequiredRole);
     }
+    Ok(())
 }
 
 /// Require that the caller has any of the specified roles
-pub fn require_any_role_auth(env: &Env, roles: &[Role], account: &Address) {
+pub fn require_any_role_auth(env: &Env, roles: &[Role], account: &Address) -> Result<(), AccessControlError> {
     account.require_auth();
     if !has_any_role(env, roles, account) {
-        panic!("account missing required role");
+        return Err(AccessControlError::MissingRequiredRole);
     }
+    Ok(())
 }
 
 /// Grant a role to an account
 /// Only the admin can grant roles
-pub fn grant_role(env: &Env, role: &Role, account: &Address, sender: &Address) {
+pub fn grant_role(env: &Env, role: &Role, account: &Address, sender: &Address) -> Result<(), AccessControlError> {
     // Only admin can grant roles
-    require_role_auth(env, &Role::Admin, sender);
+    require_role_auth(env, &Role::Admin, sender)?;
 
     let key = storage_key(role, account);
     env.storage().instance().set(&key, &true);
@@ -180,13 +194,14 @@ pub fn grant_role(env: &Env, role: &Role, account: &Address, sender: &Address) {
         (symbol_short!("rbac"), Symbol::new(env, "RoleGranted")),
         event,
     );
+    Ok(())
 }
 
 /// Revoke a role from an account
 /// Only the admin can revoke roles
-pub fn revoke_role(env: &Env, role: &Role, account: &Address, sender: &Address) {
+pub fn revoke_role(env: &Env, role: &Role, account: &Address, sender: &Address) -> Result<(), AccessControlError> {
     // Only admin can revoke roles
-    require_role_auth(env, &Role::Admin, sender);
+    require_role_auth(env, &Role::Admin, sender)?;
 
     let key = storage_key(role, account);
     env.storage().instance().remove(&key);
@@ -201,15 +216,16 @@ pub fn revoke_role(env: &Env, role: &Role, account: &Address, sender: &Address) 
         (symbol_short!("rbac"), Symbol::new(env, "RoleRevoked")),
         event,
     );
+    Ok(())
 }
 
 /// Renounce a role (self-revoke)
 /// The account must have the role and must authorize the transaction
-pub fn renounce_role(env: &Env, role: &Role, account: &Address) {
+pub fn renounce_role(env: &Env, role: &Role, account: &Address) -> Result<(), AccessControlError> {
     account.require_auth();
     
     if !has_role(env, role, account) {
-        panic!("account does not have role");
+        return Err(AccessControlError::MissingRequiredRole);
     }
 
     let key = storage_key(role, account);
@@ -225,6 +241,7 @@ pub fn renounce_role(env: &Env, role: &Role, account: &Address) {
         (symbol_short!("rbac"), Symbol::new(env, "RoleRevoked")),
         event,
     );
+    Ok(())
 }
 
 /// Internal: Set admin without auth check (for use after auth already verified)
@@ -254,15 +271,16 @@ fn _set_admin_internal(env: &Env, admin: &Address) {
 
 /// Set the admin address
 /// Can only be called during initialization or by current admin
-pub fn set_admin(env: &Env, admin: &Address, sender: Option<&Address>) {
+pub fn set_admin(env: &Env, admin: &Address, sender: Option<&Address>) -> Result<(), AccessControlError> {
     // Check auth if there's already an admin (not initialization)
     if env.storage().instance().has(&AccessControlKey::Admin) {
         if let Some(sender_addr) = sender {
-            require_role_auth(env, &Role::Admin, sender_addr);
+            require_role_auth(env, &Role::Admin, sender_addr)?;
         }
     }
     
     _set_admin_internal(env, admin);
+    Ok(())
 }
 
 /// Get the current admin address
@@ -277,12 +295,12 @@ pub fn is_admin(env: &Env, account: &Address) -> bool {
 
 /// Initialize the RBAC system with a default admin
 /// This should be called during contract initialization
-pub fn initialize(env: &Env, admin: &Address) {
+pub fn initialize(env: &Env, admin: &Address) -> Result<(), AccessControlError> {
     if get_admin(env).is_some() {
-        panic!("already initialized");
+        return Err(AccessControlError::AlreadyInitialized);
     }
     
-    set_admin(env, admin, None);
+    set_admin(env, admin, None)?;
     
     // Grant full set of roles to admin by default
     let roles = [
@@ -308,11 +326,12 @@ pub fn initialize(env: &Env, admin: &Address) {
             event,
         );
     }
+    Ok(())
 }
 
 /// Transfer admin role to a new address
-pub fn transfer_admin(env: &Env, new_admin: &Address, current_admin: &Address) {
-    require_role_auth(env, &Role::Admin, current_admin);
+pub fn transfer_admin(env: &Env, new_admin: &Address, current_admin: &Address) -> Result<(), AccessControlError> {
+    require_role_auth(env, &Role::Admin, current_admin)?;
     
     // Use internal helper to avoid double auth check
     _set_admin_internal(env, new_admin);
@@ -333,6 +352,7 @@ pub fn transfer_admin(env: &Env, new_admin: &Address, current_admin: &Address) {
             env.storage().instance().set(&key, &true);
         }
     }
+    Ok(())
 }
 
 /// Get all roles that an account has (for query purposes)

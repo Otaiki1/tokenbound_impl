@@ -10,7 +10,7 @@ pub mod harness;
 /// tests. It centralizes common input generators and invariant assertions so
 /// contract teams can write more consistent property-based tests.
 pub fn arb_ascii_text(max_len: usize) -> impl Strategy<Value = std::string::String> {
-    let regex = format!("^[a-zA-Z0-9 ]{{0,{}}}$", max_len);
+    let regex = format!("[a-zA-Z0-9 ]{{0,{}}}", max_len);
     proptest::string::string_regex(&regex)
         .expect("invalid ASCII regex")
 }

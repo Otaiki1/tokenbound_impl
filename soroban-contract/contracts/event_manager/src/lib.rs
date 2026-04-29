@@ -42,6 +42,7 @@ pub enum Error {
     PurchaseQuantityTooLarge = 27,
     AlreadyArchived = 28,
     ArchiveNotAllowed = 29,
+    ArithmeticOverflow = 30,
 }
 
 // STORAGE: pack rate-limit metadata (open_count + last_create_ts) into a
@@ -789,19 +790,10 @@ impl EventManager {
         env.events()
             .publish((Symbol::new(&env, "RefundClaimed"),), event);
 
-    pub fn initialize_legacy(env: Env, ticket_factory: Address) -> Result<(), Error> {
-        if env.storage().instance().has(&DataKey::TicketFactory) {
-            return Err(Error::AlreadyInitialized);
-        }
-        upg::set_admin(&env, &ticket_factory);
-        upg::init_version(&env);
-        env.storage()
-            .instance()
-            .set(&DataKey::TicketFactory, &ticket_factory);
-        env.storage().instance().set(&DataKey::EventCounter, &0u32);
-        upg::extend_instance_ttl(&env);
         Ok(())
     }
+
+
 
     pub fn purchase_ticket(
         env: Env,
@@ -856,7 +848,7 @@ impl EventManager {
         }
 
         let price_per_ticket = tier.price;
-        let total_price = Self::calculate_total_price(price_per_ticket, quantity);
+        let total_price = Self::calculate_total_price(price_per_ticket, quantity)?;
 
         if total_price > 0 {
             let token_client = soroban_sdk::token::Client::new(&env, &event.payment_token);
@@ -886,7 +878,7 @@ impl EventManager {
             .set(&DataKey::EventTiers(event_id), &tiers);
         Self::extend_persistent_ttl(&env, &DataKey::EventTiers(event_id));
 
-        Self::record_purchase(&env, event_id, buyer.clone(), quantity, total_price);
+        Self::record_purchase(&env, event_id, buyer.clone(), quantity, total_price)?;
 
         event.tickets_sold = event
             .tickets_sold
@@ -1389,7 +1381,7 @@ impl EventManager {
         Ok(nft_addr)
     }
 
-    fn record_purchase(env: &Env, event_id: u32, buyer: Address, quantity: u128, total_paid: i128) {
+    fn record_purchase(env: &Env, event_id: u32, buyer: Address, quantity: u128, total_paid: i128) -> Result<(), Error> {
         let key = DataKey::BuyerPurchase(event_id, buyer.clone());
         let existing = env.storage().persistent().get::<_, BuyerPurchase>(&key);
 
@@ -1397,11 +1389,11 @@ impl EventManager {
             purchase.quantity = purchase
                 .quantity
                 .checked_add(quantity)
-                .unwrap_or_else(|| panic!("Purchase quantity overflow"));
+                .ok_or(Error::ArithmeticOverflow)?;
             purchase.total_paid = purchase
                 .total_paid
                 .checked_add(total_paid)
-                .unwrap_or_else(|| panic!("Purchase total overflow"));
+                .ok_or(Error::ArithmeticOverflow)?;
             env.storage().persistent().set(&key, &purchase);
         } else {
             let purchase = BuyerPurchase {
@@ -1438,17 +1430,18 @@ impl EventManager {
         }
 
         Self::extend_persistent_ttl(env, &key);
+        Ok(())
     }
 
-    fn calculate_total_price(ticket_price: i128, quantity: u128) -> i128 {
+    fn calculate_total_price(ticket_price: i128, quantity: u128) -> Result<i128, Error> {
         if ticket_price <= 0 {
-            return 0;
+            return Ok(0);
         }
         let quantity_i128 =
-            i128::try_from(quantity).unwrap_or_else(|_| panic!("Quantity exceeds pricing range"));
+            i128::try_from(quantity).map_err(|_| Error::ArithmeticOverflow)?;
         let subtotal = ticket_price
             .checked_mul(quantity_i128)
-            .unwrap_or_else(|| panic!("Price overflow"));
+            .ok_or(Error::ArithmeticOverflow)?;
 
         let discount_bps = if quantity >= 10 {
             1_000i128
@@ -1461,7 +1454,7 @@ impl EventManager {
         subtotal
             .checked_mul(10_000i128 - discount_bps)
             .and_then(|value| value.checked_div(10_000))
-            .unwrap_or_else(|| panic!("Discount calculation overflow"))
+            .ok_or(Error::ArithmeticOverflow)
     }
 
     fn extend_persistent_ttl(env: &Env, key: &DataKey) {
