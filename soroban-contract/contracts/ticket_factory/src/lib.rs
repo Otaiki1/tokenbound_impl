@@ -15,7 +15,8 @@
 #![no_std]
 
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, Address, Bytes, BytesN, Env, IntoVal, Symbol, Val, Vec,
+    contract, contracterror, contractimpl, contracttype, symbol_short, Address, Bytes, BytesN,
+    Env, IntoVal, Symbol, Val, Vec,
 };
 
 use upgradeable as upg;
@@ -26,6 +27,9 @@ use upgradeable as upg;
 pub enum Error {
     NotInitialized = 1,
     Unauthorized = 2,
+    /// `deploy_ticket` was called by an address that is not on the
+    /// configured deployer registry's allowlist.
+    DeployerNotAuthorized = 3,
 }
 
 /// Storage keys for the contract state
@@ -39,6 +43,11 @@ pub enum DataKey {
     TotalTickets,
     /// Mapping from event_id to deployed ticket contract address
     TicketContract(u32),
+    /// Optional `DeployerRegistry` contract address. When set, the factory
+    /// gates `deploy_ticket` on `registry.is_authorized(caller)` in
+    /// addition to the existing admin auth check. When unset, the factory
+    /// behaves identically to before (admin-only, no allowlist gate).
+    DeployerRegistry,
 }
 
 /// Ticket Factory Contract
@@ -73,7 +82,7 @@ impl TicketFactory {
         );
     }
 
-    /// Deploy a new Ticket NFT contract for an event
+    /// Deploy a new Ticket NFT contract for an event.
     ///
     /// # Arguments
     /// * `env` - The contract environment
@@ -81,10 +90,17 @@ impl TicketFactory {
     /// * `salt` - Unique salt for deterministic address generation
     ///
     /// # Returns
-    /// The address of the newly deployed Ticket NFT contract
+    /// The address of the newly deployed Ticket NFT contract.
     ///
     /// # Authorization
-    /// Requires admin authorization
+    /// 1. Requires admin authorization (`admin.require_auth()`).
+    /// 2. **If a `DeployerRegistry` is configured** via [`Self::set_deployer_registry`],
+    ///    the factory additionally invokes
+    ///    `registry.is_authorized(minter)` and rejects the call with
+    ///    [`Error::DeployerNotAuthorized`] if the minter is not on the
+    ///    allowlist (the factory admin is implicitly authorized inside the
+    ///    registry's `is_authorized` check). When no registry is configured
+    ///    the factory falls back to the historical admin-only model.
     pub fn deploy_ticket(env: Env, minter: Address, salt: BytesN<32>) -> Result<Address, Error> {
         // Authorize: only admin can deploy
         let admin: Address = env
@@ -93,6 +109,23 @@ impl TicketFactory {
             .get(&DataKey::Admin)
             .ok_or(Error::NotInitialized)?;
         admin.require_auth();
+
+        // Optional RBAC gate: if a DeployerRegistry is configured, ensure
+        // the minter is on its allowlist before invoking the deployer.
+        if let Some(registry) = env
+            .storage()
+            .instance()
+            .get::<_, Address>(&DataKey::DeployerRegistry)
+        {
+            let authorized: bool = env.invoke_contract(
+                &registry,
+                &Symbol::new(&env, "is_authorized"),
+                soroban_sdk::vec![&env, minter.clone().into_val(&env)],
+            );
+            if !authorized {
+                return Err(Error::DeployerNotAuthorized);
+            }
+        }
 
         // Get the WASM hash for deployment
         let wasm_hash: BytesN<32> = env
@@ -187,6 +220,55 @@ impl TicketFactory {
             .instance()
             .get(&DataKey::TotalTickets)
             .unwrap_or(0)
+    }
+
+    /// Configure (or replace) the `DeployerRegistry` contract that gates
+    /// `deploy_ticket`. Pass `None` to detach the current registry and
+    /// revert to the historical admin-only deployment model.
+    ///
+    /// # Authorization
+    /// Admin-only — `admin.require_auth()` plus an explicit equality
+    /// check against the stored admin.
+    pub fn set_deployer_registry(
+        env: Env,
+        admin: Address,
+        registry: Option<Address>,
+    ) -> Result<(), Error> {
+        admin.require_auth();
+        let stored: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(Error::NotInitialized)?;
+        if stored != admin {
+            return Err(Error::Unauthorized);
+        }
+
+        match registry {
+            Some(addr) => {
+                env.storage()
+                    .instance()
+                    .set(&DataKey::DeployerRegistry, &addr);
+                env.events().publish(
+                    (symbol_short!("registry"), symbol_short!("set")),
+                    addr,
+                );
+            }
+            None => {
+                env.storage().instance().remove(&DataKey::DeployerRegistry);
+                env.events().publish(
+                    (symbol_short!("registry"), symbol_short!("cleared")),
+                    (),
+                );
+            }
+        }
+        upg::extend_instance_ttl(&env);
+        Ok(())
+    }
+
+    /// Read the configured `DeployerRegistry` address, if any.
+    pub fn get_deployer_registry(env: Env) -> Option<Address> {
+        env.storage().instance().get(&DataKey::DeployerRegistry)
     }
 
     /// Get the factory admin address

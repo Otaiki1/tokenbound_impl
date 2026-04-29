@@ -17,6 +17,7 @@ members = [
   "contracts/dao_governance",
   "contracts/merkle_distributor",
   "contracts/payment_splitter",
+  "contracts/deployer_registry",
   "tests/integration",
 ]
 exclude = ["contracts/hello-world"]
