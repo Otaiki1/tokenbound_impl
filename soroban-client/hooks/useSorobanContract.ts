@@ -1,7 +1,11 @@
 "use client";
 
-import { useState, useCallback, useEffect } from 'react';
-import type { InvokeOptions, WriteInvokeOptions, SorobanSubmitResult } from '../sdk/src/types';
+import { useState, useCallback, useEffect } from "react";
+import type {
+  InvokeOptions,
+  WriteInvokeOptions,
+  SorobanSubmitResult,
+} from "../sdk/src/types";
 
 export interface ContractCallState<T = unknown> {
   data: T | null;
@@ -15,14 +19,16 @@ export interface UseContractReadResult<T> extends ContractCallState<T> {
   refetch: () => Promise<void>;
 }
 
-export interface UseContractWriteResult<T = SorobanSubmitResult> extends ContractCallState<T> {
+export interface UseContractWriteResult<
+  T = SorobanSubmitResult,
+> extends ContractCallState<T> {
   write: () => Promise<void>;
   reset: () => void;
 }
 
 export function useSorobanContractRead<T>(
   contractFn: ((options?: InvokeOptions) => Promise<T>) | null,
-  options?: InvokeOptions & { enabled?: boolean; refetchInterval?: number }
+  options?: InvokeOptions & { enabled?: boolean; refetchInterval?: number },
 ): UseContractReadResult<T> {
   const { enabled = true, refetchInterval, ...invokeOptions } = options || {};
 
@@ -37,7 +43,7 @@ export function useSorobanContractRead<T>(
   const fetchData = useCallback(async () => {
     if (!contractFn || !enabled) return;
 
-    setState(prev => ({ ...prev, loading: true, error: null }));
+    setState((prev) => ({ ...prev, loading: true, error: null }));
 
     try {
       const result = await contractFn(invokeOptions);
@@ -52,7 +58,7 @@ export function useSorobanContractRead<T>(
       setState({
         data: null,
         loading: false,
-        error: error instanceof Error ? error : new Error('Unknown error'),
+        error: error instanceof Error ? error : new Error("Unknown error"),
         isSuccess: false,
         isError: true,
       });
@@ -81,10 +87,15 @@ export function useSorobanContractRead<T>(
   };
 }
 
-export function useSorobanContractWrite<TInput = unknown, TOutput = SorobanSubmitResult>(
-  contractFn: ((input: TInput, options: WriteInvokeOptions) => Promise<TOutput>) | null,
+export function useSorobanContractWrite<
+  TInput = unknown,
+  TOutput = SorobanSubmitResult,
+>(
+  contractFn:
+    | ((input: TInput, options: WriteInvokeOptions) => Promise<TOutput>)
+    | null,
   input: TInput,
-  options: WriteInvokeOptions
+  options: WriteInvokeOptions,
 ): UseContractWriteResult<TOutput> {
   const [state, setState] = useState<ContractCallState<TOutput>>({
     data: null,
@@ -96,15 +107,15 @@ export function useSorobanContractWrite<TInput = unknown, TOutput = SorobanSubmi
 
   const write = useCallback(async () => {
     if (!contractFn) {
-      setState(prev => ({
+      setState((prev) => ({
         ...prev,
-        error: new Error('Contract function not provided'),
+        error: new Error("Contract function not provided"),
         isError: true,
       }));
       return;
     }
 
-    setState(prev => ({ ...prev, loading: true, error: null }));
+    setState((prev) => ({ ...prev, loading: true, error: null }));
 
     try {
       const result = await contractFn(input, options);
@@ -119,7 +130,7 @@ export function useSorobanContractWrite<TInput = unknown, TOutput = SorobanSubmi
       setState({
         data: null,
         loading: false,
-        error: error instanceof Error ? error : new Error('Unknown error'),
+        error: error instanceof Error ? error : new Error("Unknown error"),
         isSuccess: false,
         isError: true,
       });

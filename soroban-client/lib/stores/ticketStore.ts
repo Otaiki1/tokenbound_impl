@@ -1,5 +1,5 @@
-import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
+import { create } from "zustand";
+import { persist } from "zustand/middleware";
 
 interface Ticket {
   tokenId: bigint;
@@ -12,7 +12,7 @@ interface Ticket {
 interface TicketState {
   tickets: Ticket[];
   selectedTicket: Ticket | null;
-  
+
   addTicket: (ticket: Ticket) => void;
   updateTicket: (tokenId: bigint, updates: Partial<Ticket>) => void;
   removeTicket: (tokenId: bigint) => void;
@@ -40,7 +40,7 @@ export const useTicketStore = create<TicketState>()(
       updateTicket: (tokenId, updates) =>
         set((state) => ({
           tickets: state.tickets.map((ticket) =>
-            ticket.tokenId === tokenId ? { ...ticket, ...updates } : ticket
+            ticket.tokenId === tokenId ? { ...ticket, ...updates } : ticket,
           ),
           selectedTicket:
             state.selectedTicket?.tokenId === tokenId
@@ -52,7 +52,9 @@ export const useTicketStore = create<TicketState>()(
         set((state) => ({
           tickets: state.tickets.filter((ticket) => ticket.tokenId !== tokenId),
           selectedTicket:
-            state.selectedTicket?.tokenId === tokenId ? null : state.selectedTicket,
+            state.selectedTicket?.tokenId === tokenId
+              ? null
+              : state.selectedTicket,
         })),
 
       selectTicket: (ticket) => set({ selectedTicket: ticket }),
@@ -68,7 +70,7 @@ export const useTicketStore = create<TicketState>()(
       reset: () => set(initialState),
     }),
     {
-      name: 'ticket-storage',
-    }
-  )
+      name: "ticket-storage",
+    },
+  ),
 );

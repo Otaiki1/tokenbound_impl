@@ -79,10 +79,12 @@ impl TbaRegistry {
         let account_key =
             account_storage_key(&env, &implementation_hash, &token_contract, token_id, &salt);
 
+        // STORAGE: pure lookup path. TTL is extended in `create_account`
+        // when the entry is written; bumping it on every read turned every
+        // `get_account` query (the most-called RPC against this contract)
+        // into a storage write.
         let deployed_account: Option<Address> = env.storage().persistent().get(&account_key);
         if let Some(deployed_addr) = deployed_account {
-            // Extend persistent TTL on read
-            upg::extend_persistent_ttl(&env, &account_key);
             return deployed_addr;
         }
 
@@ -244,6 +246,27 @@ impl TbaRegistry {
 
     pub fn commit_upgrade(env: Env) {
         upg::commit_upgrade(&env);
+    }
+
+    /// Immediate (fast-path) upgrade. Admin-only, no timelock — see
+    /// `upgradeable::upgrade` for the full security note. Reserve for
+    /// emergencies; prefer `schedule_upgrade` + `commit_upgrade` for
+    /// routine upgrades.
+    pub fn upgrade(env: Env, new_wasm_hash: BytesN<32>) {
+        upg::upgrade(&env, new_wasm_hash);
+    }
+
+    /// Apply post-upgrade state-shape migrations and bump the version to
+    /// `target_version`. Admin-only; rejects downgrades.
+    pub fn migrate(env: Env, target_version: u32) {
+        upg::require_admin(&env);
+        upg::require_version_increase(&env, target_version);
+
+        match target_version {
+            _ => {}
+        }
+
+        upg::migration_completed(&env, target_version);
     }
 
     pub fn pause(env: Env) {

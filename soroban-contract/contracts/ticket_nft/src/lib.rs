@@ -167,12 +167,13 @@ impl TicketNft {
             return Err(Error::InvalidTokenId);
         }
 
+        // STORAGE: read-only path. TTL is extended on the write side
+        // (`update_off_chain_uri`), so reads do not bump rent.
         if let Some(off_chain) = env
             .storage()
             .persistent()
             .get::<_, OffChainMetadata>(&DataKey::OffChain(token_id))
         {
-            Self::extend_persistent_ttl(&env, &DataKey::OffChain(token_id));
             return Ok(off_chain.uri);
         }
 
@@ -184,13 +185,12 @@ impl TicketNft {
             return Err(Error::InvalidTokenId);
         }
 
-        let metadata: TicketMetadata = env
-            .storage()
+        // STORAGE: read-only path. TTL extension lives on `mint_ticket_nft` /
+        // `update_metadata` so external reads no longer turn into writes.
+        env.storage()
             .persistent()
             .get(&DataKey::Metadata(token_id))
-            .ok_or(Error::MetadataNotFound)?;
-        Self::extend_persistent_ttl(&env, &DataKey::Metadata(token_id));
-        Ok(metadata)
+            .ok_or(Error::MetadataNotFound)
     }
 
     pub fn update_metadata(
@@ -286,12 +286,14 @@ impl TicketNft {
     }
 
     pub fn owner_of(env: Env, token_id: u128) -> Result<Address, Error> {
+        // STORAGE: read-only path. TTL is extended on writes (mint, transfer,
+        // burn) where the entry actually changes, so external `owner_of`
+        // queries no longer pay storage rent.
         let owner = env
             .storage()
             .persistent()
             .get(&DataKey::Owner(token_id))
             .ok_or(Error::InvalidTokenId)?;
-        Self::extend_persistent_ttl(&env, &DataKey::Owner(token_id));
         Ok(owner)
     }
 
@@ -356,10 +358,12 @@ impl TicketNft {
         env.storage()
             .persistent()
             .remove(&DataKey::OffChain(token_id));
+        // STORAGE: remove the now-zero Balance entry rather than writing
+        // `0u128`. `balance_of` already returns 0 via `unwrap_or(0)` when
+        // the entry is absent, so this saves rent on a no-information slot.
         env.storage()
             .persistent()
-            .set(&DataKey::Balance(owner.clone()), &0u128);
-        Self::extend_persistent_ttl(&env, &DataKey::Balance(owner.clone()));
+            .remove(&DataKey::Balance(owner.clone()));
 
         env.events().publish(
             (Symbol::new(&env, "ticket_burned"),),
@@ -402,6 +406,27 @@ impl TicketNft {
 
     pub fn commit_upgrade(env: Env) {
         upg::commit_upgrade(&env);
+    }
+
+    /// Immediate (fast-path) upgrade. Admin-only, no timelock — see
+    /// `upgradeable::upgrade` for the full security note. Reserve for
+    /// emergencies; prefer `schedule_upgrade` + `commit_upgrade` for
+    /// routine upgrades.
+    pub fn upgrade(env: Env, new_wasm_hash: BytesN<32>) {
+        upg::upgrade(&env, new_wasm_hash);
+    }
+
+    /// Apply post-upgrade state-shape migrations and bump the version to
+    /// `target_version`. Admin-only; rejects downgrades.
+    pub fn migrate(env: Env, target_version: u32) {
+        upg::require_admin(&env);
+        upg::require_version_increase(&env, target_version);
+
+        match target_version {
+            _ => {}
+        }
+
+        upg::migration_completed(&env, target_version);
     }
 
     pub fn pause(env: Env) {

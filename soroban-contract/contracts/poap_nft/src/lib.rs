@@ -50,6 +50,7 @@ pub enum DataKey {
     Metadata(u128),
     OffChain(u128),
     MintedForEvent(u32, Address),
+    Approval(u128),
 }
 
 #[contract]
@@ -140,6 +141,10 @@ impl PoapNft {
     }
 
     pub fn token_uri(env: Env, token_id: u128) -> Result<String, Error> {
+        // STORAGE: pure read path. TTL is extended on the write side
+        // (`mint_poap`, `update_off_chain_uri`), so external reads do not
+        // bump rent. Earlier revisions called `extend_persistent_ttl` here,
+        // turning every `token_uri` query into a storage write.
         if !env.storage().persistent().has(&DataKey::Owner(token_id)) {
             return Err(Error::InvalidTokenId);
         }
@@ -191,6 +196,27 @@ impl PoapNft {
         upg::commit_upgrade(&env);
     }
 
+    /// Immediate (fast-path) upgrade. Admin-only, no timelock — see
+    /// `upgradeable::upgrade` for the full security note. Reserve for
+    /// emergencies; prefer `schedule_upgrade` + `commit_upgrade` for
+    /// routine upgrades.
+    pub fn upgrade(env: Env, new_wasm_hash: BytesN<32>) {
+        upg::upgrade(&env, new_wasm_hash);
+    }
+
+    /// Apply post-upgrade state-shape migrations and bump the version to
+    /// `target_version`. Admin-only; rejects downgrades.
+    pub fn migrate(env: Env, target_version: u32) {
+        upg::require_admin(&env);
+        upg::require_version_increase(&env, target_version);
+
+        match target_version {
+            _ => {}
+        }
+
+        upg::migration_completed(&env, target_version);
+    }
+
     pub fn pause(env: Env) {
         upg::pause(&env);
     }
@@ -212,5 +238,36 @@ impl PoapNft {
     }
 }
 
+
+    /// ERC-20 compatible approve function
+    /// Allows `spender` to transfer `token_id` on behalf of the owner
+    pub fn approve(env: Env, owner: Address, spender: Address, token_id: u128) -> Result<(), Error> {
+        owner.require_auth();
+        let current_owner = env.storage().persistent().get::
+<DataKey, Address>(&DataKey::Owner(token_id)).ok_or(Error::TokenNotFound)?;
+        if current_owner != owner {
+            return Err(Error::NotOwner);
+        }
+        env.storage().persistent().set(&DataKey::Approval(token_id), &spender);
+        Ok(())
+    }
+
+    /// ERC-20 compatible transfer_from function
+    /// Transfers `token_id` from `from` to `to` if caller is approved
+    pub fn transfer_from(env: Env, spender: Address, from: Address, to: Address, token_id: u128) -> Result<(), Error> {
+        spender.require_auth();
+        let current_owner = env.storage().persistent().get::
+<DataKey, Address>(&DataKey::Owner(token_id)).ok_or(Error::TokenNotFound)?;
+        if current_owner != from {
+            return Err(Error::NotOwner);
+        }
+        let approved: Address = env.storage().persistent().get(&DataKey::Approval(token_id)).ok_or(Error::NotApproved)?;
+        if approved != spender {
+            return Err(Error::NotApproved);
+        }
+        env.storage().persistent().set(&DataKey::Owner(token_id), &to);
+        env.storage().persistent().remove(&DataKey::Approval(token_id));
+        Ok(())
+    }
 #[cfg(test)]
 mod test;

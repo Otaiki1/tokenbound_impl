@@ -44,6 +44,29 @@ pub enum Error {
     ArchiveNotAllowed = 29,
 }
 
+// STORAGE: pack rate-limit metadata (open_count + last_create_ts) into a
+// single per-organizer entry. Before: two persistent keys
+// (`OrganizerOpenEventCount`, `OrganizerLastCreateTs`), each touched on
+// `create_event` and `cancel_event`/`withdraw_funds`. After: one entry.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct OrganizerLimits {
+    pub open_count: u32,
+    pub last_create_ts: u64,
+}
+
+// STORAGE: pack the per-event funds book (collected balance + withdrawn
+// flag) into one entry. Before: two persistent keys (`EventBalance`,
+// `FundsWithdrawn`). After: one entry, and the missing-entry case still
+// represents "no funds collected, not withdrawn" so the read path is
+// backwards-compatible.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct EventLedger {
+    pub balance: i128,
+    pub withdrawn: bool,
+}
+
 #[contracttype]
 pub enum DataKey {
     Event(u32),
@@ -63,12 +86,21 @@ pub enum DataKey {
     EventTiers(u32),
     BuyerPurchase(u32, Address),
     BuyerTicketTokenId(u32, Address),
+    /// STORAGE: lives in `temporary` storage — only consulted between event
+    /// open and end_date. Once the event closes the waitlist is no longer
+    /// queried, so paying persistent rent is wasted.
     Waitlist(u32),
-    EventBalance(u32),
-    FundsWithdrawn(u32),
-    OrganizerOpenEventCount(Address),
-    OrganizerLastCreateTs(Address),
+    /// STORAGE: packed funds book (was `EventBalance` + `FundsWithdrawn`).
+    EventLedger(u32),
+    /// STORAGE: packed rate-limit metadata (was `OrganizerOpenEventCount`
+    /// + `OrganizerLastCreateTs`).
+    OrganizerLimits(Address),
+    /// STORAGE: lives in `temporary` storage — written between event end
+    /// and `distribute_poaps`, then never read again (the `PoapDistributed`
+    /// guard short-circuits any further work).
     Attendance(u32, Address),
+    /// STORAGE: lives in `temporary` storage — same lifecycle as
+    /// `Attendance`. The list is consumed once during `distribute_poaps`.
     Attendees(u32),
     PoapDistributed(u32),
     DefaultPoapMetadata(u32),
@@ -168,6 +200,8 @@ pub struct RefundClaimedEvent {
     pub total_paid: i128,
 }
 
+/// Per-attendee POAP metadata sent over the wire to the POAP NFT contract's
+/// `mint_poap` entry point. Field shape must match `poap_nft::PoapMetadata`.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TicketPurchasedEvent {
@@ -180,6 +214,8 @@ pub struct TicketPurchasedEvent {
     pub tier_index: u32,
 }
 
+/// Per-attendee POAP metadata sent over the wire to the POAP NFT contract's
+/// `mint_poap` entry point. Field shape must match `poap_nft::PoapMetadata`.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EventUpdatedEvent {
@@ -312,23 +348,24 @@ impl EventManager {
             return Err(Error::NotABuyer);
         }
 
+        // STORAGE: attendance + attendee list live in `temporary` storage —
+        // they are consumed exactly once during `distribute_poaps` and then
+        // never read again, so persistent rent would be wasted.
         let attend_key = DataKey::Attendance(event_id, buyer.clone());
-        if env.storage().persistent().has(&attend_key) {
+        if env.storage().temporary().has(&attend_key) {
             return Ok(());
         }
 
-        env.storage().persistent().set(&attend_key, &true);
-        Self::extend_persistent_ttl(&env, &attend_key);
+        env.storage().temporary().set(&attend_key, &true);
 
         let list_key = DataKey::Attendees(event_id);
         let mut attendees: Vec<Address> = env
             .storage()
-            .persistent()
+            .temporary()
             .get(&list_key)
             .unwrap_or_else(|| Vec::new(&env));
         attendees.push_back(buyer.clone());
-        env.storage().persistent().set(&list_key, &attendees);
-        Self::extend_persistent_ttl(&env, &list_key);
+        env.storage().temporary().set(&list_key, &attendees);
 
         env.events()
             .publish((Symbol::new(&env, "attendance_marked"),), (event_id, buyer));
@@ -378,9 +415,11 @@ impl EventManager {
             .get(&DataKey::TbaSalt)
             .ok_or(Error::FactoryNotInitialized)?;
 
+        // STORAGE: attendees list lives in `temporary` storage (see
+        // `mark_attendance`).
         let attendees: Vec<Address> = env
             .storage()
-            .persistent()
+            .temporary()
             .get(&DataKey::Attendees(event_id))
             .unwrap_or_else(|| Vec::new(&env));
 
@@ -660,9 +699,12 @@ impl EventManager {
         env.events()
             .publish((Symbol::new(&env, "event_canceled"),), event_id);
 
+        // STORAGE: waitlist lives in `temporary` storage — only relevant
+        // between event open and end_date; once the event resolves the
+        // waitlist isn't consulted again, so persistent rent is wasted.
         let waitlist: Vec<Address> = env
             .storage()
-            .persistent()
+            .temporary()
             .get(&DataKey::Waitlist(event_id))
             .unwrap_or_else(|| Vec::new(&env));
 
@@ -722,13 +764,19 @@ impl EventManager {
                 &purchase.total_paid,
             );
 
-            let balance_key = DataKey::EventBalance(event_id);
-            let current_balance: i128 = env.storage().persistent().get(&balance_key).unwrap_or(0);
-            env.storage().persistent().set(
-                &balance_key,
-                &current_balance.saturating_sub(purchase.total_paid),
-            );
-            Self::extend_persistent_ttl(&env, &balance_key);
+            // STORAGE: read packed ledger, decrement balance, write back.
+            let ledger_key = DataKey::EventLedger(event_id);
+            let mut ledger: EventLedger = env
+                .storage()
+                .persistent()
+                .get(&ledger_key)
+                .unwrap_or(EventLedger {
+                    balance: 0,
+                    withdrawn: false,
+                });
+            ledger.balance = ledger.balance.saturating_sub(purchase.total_paid);
+            env.storage().persistent().set(&ledger_key, &ledger);
+            Self::extend_persistent_ttl(&env, &ledger_key);
         }
 
         let event = RefundClaimedEvent {
@@ -741,6 +789,17 @@ impl EventManager {
         env.events()
             .publish((Symbol::new(&env, "RefundClaimed"),), event);
 
+    pub fn initialize_legacy(env: Env, ticket_factory: Address) -> Result<(), Error> {
+        if env.storage().instance().has(&DataKey::TicketFactory) {
+            return Err(Error::AlreadyInitialized);
+        }
+        upg::set_admin(&env, &ticket_factory);
+        upg::init_version(&env);
+        env.storage()
+            .instance()
+            .set(&DataKey::TicketFactory, &ticket_factory);
+        env.storage().instance().set(&DataKey::EventCounter, &0u32);
+        upg::extend_instance_ttl(&env);
         Ok(())
     }
 
@@ -988,28 +1047,32 @@ impl EventManager {
             return Err(Error::EventNotEnded);
         }
 
-        if env
-            .storage()
-            .persistent()
-            .has(&DataKey::FundsWithdrawn(event_id))
-        {
+        // STORAGE: read packed ledger once, mutate both fields, write back.
+        // Replaces the prior pair of (FundsWithdrawn, EventBalance) entries.
+        let ledger_key = DataKey::EventLedger(event_id);
+        let mut ledger: EventLedger =
+            env.storage()
+                .persistent()
+                .get(&ledger_key)
+                .unwrap_or(EventLedger {
+                    balance: 0,
+                    withdrawn: false,
+                });
+
+        if ledger.withdrawn {
             return Err(Error::FundsAlreadyWithdrawn);
         }
 
-        env.storage()
-            .persistent()
-            .set(&DataKey::FundsWithdrawn(event_id), &true);
-        Self::extend_persistent_ttl(&env, &DataKey::FundsWithdrawn(event_id));
-
-        let balance_key = DataKey::EventBalance(event_id);
-        let balance: i128 = env.storage().persistent().get(&balance_key).unwrap_or(0);
-
+        let balance = ledger.balance;
         if balance > 0 {
             let token_client = soroban_sdk::token::Client::new(&env, &event.payment_token);
             token_client.transfer(&env.current_contract_address(), &event.organizer, &balance);
-            env.storage().persistent().set(&balance_key, &0i128);
-            Self::extend_persistent_ttl(&env, &balance_key);
+            ledger.balance = 0;
         }
+        ledger.withdrawn = true;
+
+        env.storage().persistent().set(&ledger_key, &ledger);
+        Self::extend_persistent_ttl(&env, &ledger_key);
 
         let event_data = FundsWithdrawnEvent {
             contract_address: env.current_contract_address(),
@@ -1054,19 +1117,22 @@ impl EventManager {
             return Err(Error::ArchiveNotAllowed);
         }
 
-        if !env
+        // STORAGE: read packed ledger once for both checks (withdrawn? &
+        // total_collected for the archive snapshot).
+        let ledger: EventLedger = env
             .storage()
             .persistent()
-            .has(&DataKey::FundsWithdrawn(event_id))
-        {
+            .get(&DataKey::EventLedger(event_id))
+            .unwrap_or(EventLedger {
+                balance: 0,
+                withdrawn: false,
+            });
+
+        if !ledger.withdrawn {
             return Err(Error::ArchiveNotAllowed);
         }
 
-        let total_collected: i128 = env
-            .storage()
-            .persistent()
-            .get(&DataKey::EventBalance(event_id))
-            .unwrap_or(0);
+        let total_collected: i128 = ledger.balance;
 
         let archived = ArchivedEvent {
             id: event.id,
@@ -1104,15 +1170,14 @@ impl EventManager {
         env.storage()
             .persistent()
             .remove(&DataKey::EventTiers(event_id));
+        // STORAGE: Waitlist lives in `temporary` storage now.
         env.storage()
-            .persistent()
+            .temporary()
             .remove(&DataKey::Waitlist(event_id));
+        // STORAGE: single packed ledger replaces (EventBalance, FundsWithdrawn).
         env.storage()
             .persistent()
-            .remove(&DataKey::EventBalance(event_id));
-        env.storage()
-            .persistent()
-            .remove(&DataKey::FundsWithdrawn(event_id));
+            .remove(&DataKey::EventLedger(event_id));
         env.storage().persistent().remove(&DataKey::Event(event_id));
 
         env.events()
@@ -1131,6 +1196,27 @@ impl EventManager {
 
     pub fn commit_upgrade(env: Env) {
         upg::commit_upgrade(&env);
+    }
+
+    /// Immediate (fast-path) upgrade. Admin-only, no timelock — see
+    /// `upgradeable::upgrade` for the full security note. Reserve for
+    /// emergencies; prefer `schedule_upgrade` + `commit_upgrade` for
+    /// routine upgrades.
+    pub fn upgrade(env: Env, new_wasm_hash: BytesN<32>) {
+        upg::upgrade(&env, new_wasm_hash);
+    }
+
+    /// Apply post-upgrade state-shape migrations and bump the version to
+    /// `target_version`. Admin-only; rejects downgrades.
+    pub fn migrate(env: Env, target_version: u32) {
+        upg::require_admin(&env);
+        upg::require_version_increase(&env, target_version);
+
+        match target_version {
+            _ => {}
+        }
+
+        upg::migration_completed(&env, target_version);
     }
 
     pub fn pause(env: Env) {
@@ -1193,58 +1279,79 @@ impl EventManager {
     }
 
     fn enforce_organizer_limits_and_rate(env: &Env, organizer: &Address) -> Result<(), Error> {
-        let count_key = DataKey::OrganizerOpenEventCount(organizer.clone());
-        let open_count: u32 = env.storage().persistent().get(&count_key).unwrap_or(0);
-        if open_count >= Self::MAX_ORGANIZER_OPEN_EVENTS {
+        // STORAGE: a single packed read covers both the open-event count and
+        // the create-cooldown timestamp.
+        let limits_key = DataKey::OrganizerLimits(organizer.clone());
+        let limits: OrganizerLimits = env
+            .storage()
+            .persistent()
+            .get(&limits_key)
+            .unwrap_or(OrganizerLimits {
+                open_count: 0,
+                last_create_ts: 0,
+            });
+        if limits.open_count >= Self::MAX_ORGANIZER_OPEN_EVENTS {
             return Err(Error::TooManyOrganizerEvents);
         }
 
-        if open_count > 0 {
-            let ts_key = DataKey::OrganizerLastCreateTs(organizer.clone());
+        if limits.open_count > 0 {
             let now = env.ledger().timestamp();
-            if let Some(last) = env.storage().instance().get::<_, u64>(&ts_key) {
-                let earliest = last.saturating_add(Self::EVENT_CREATE_COOLDOWN_SECS);
-                if now < earliest {
-                    return Err(Error::EventCreationRateLimited);
-                }
+            let earliest = limits
+                .last_create_ts
+                .saturating_add(Self::EVENT_CREATE_COOLDOWN_SECS);
+            if now < earliest {
+                return Err(Error::EventCreationRateLimited);
             }
         }
         Ok(())
     }
 
     fn commit_organizer_create(env: &Env, organizer: &Address) {
-        let count_key = DataKey::OrganizerOpenEventCount(organizer.clone());
-        let current: u32 = env.storage().persistent().get(&count_key).unwrap_or(0);
-        env.storage()
+        // STORAGE: read packed limits once, mutate both fields, write back.
+        let limits_key = DataKey::OrganizerLimits(organizer.clone());
+        let mut limits: OrganizerLimits = env
+            .storage()
             .persistent()
-            .set(&count_key, &current.saturating_add(1));
-        Self::extend_persistent_ttl(env, &count_key);
-
-        let ts_key = DataKey::OrganizerLastCreateTs(organizer.clone());
-        env.storage()
-            .persistent()
-            .set(&ts_key, &env.ledger().timestamp());
-        Self::extend_persistent_ttl(env, &ts_key);
+            .get(&limits_key)
+            .unwrap_or(OrganizerLimits {
+                open_count: 0,
+                last_create_ts: 0,
+            });
+        limits.open_count = limits.open_count.saturating_add(1);
+        limits.last_create_ts = env.ledger().timestamp();
+        env.storage().persistent().set(&limits_key, &limits);
+        Self::extend_persistent_ttl(env, &limits_key);
     }
 
     fn decrement_organizer_open_events(env: &Env, organizer: &Address) {
-        let count_key = DataKey::OrganizerOpenEventCount(organizer.clone());
-        let current: u32 = env.storage().persistent().get(&count_key).unwrap_or(0);
-        env.storage()
+        // STORAGE: same packed entry — keep last_create_ts unchanged so the
+        // rate-limit window from the previous create still applies.
+        let limits_key = DataKey::OrganizerLimits(organizer.clone());
+        let mut limits: OrganizerLimits = env
+            .storage()
             .persistent()
-            .set(&count_key, &current.saturating_sub(1));
-        Self::extend_persistent_ttl(env, &count_key);
+            .get(&limits_key)
+            .unwrap_or(OrganizerLimits {
+                open_count: 0,
+                last_create_ts: 0,
+            });
+        limits.open_count = limits.open_count.saturating_sub(1);
+        env.storage().persistent().set(&limits_key, &limits);
+        Self::extend_persistent_ttl(env, &limits_key);
     }
 
     fn try_promote_from_waitlist(env: &Env, event_id: u32) {
+        // STORAGE: waitlist lives in `temporary` — see DataKey definition.
+        // No TTL extension on the read path; the write side (whichever
+        // contract hands signups in here) is responsible for keeping the
+        // entry alive while it matters.
         let key = DataKey::Waitlist(event_id);
-        if let Some(waitlist) = env.storage().persistent().get::<_, Vec<Address>>(&key) {
+        if let Some(waitlist) = env.storage().temporary().get::<_, Vec<Address>>(&key) {
             if !waitlist.is_empty() {
                 env.events().publish(
                     (Symbol::new(env, "waitlist_promotion_skipped"),),
                     (event_id, waitlist.len()),
                 );
-                Self::extend_persistent_ttl(env, &key);
             }
         }
     }
@@ -1315,12 +1422,19 @@ impl EventManager {
         }
 
         if total_paid > 0 {
-            let balance_key = DataKey::EventBalance(event_id);
-            let current: i128 = env.storage().persistent().get(&balance_key).unwrap_or(0);
-            env.storage()
+            // STORAGE: read packed ledger, increment balance, write back.
+            let ledger_key = DataKey::EventLedger(event_id);
+            let mut ledger: EventLedger = env
+                .storage()
                 .persistent()
-                .set(&balance_key, &current.saturating_add(total_paid));
-            Self::extend_persistent_ttl(env, &balance_key);
+                .get(&ledger_key)
+                .unwrap_or(EventLedger {
+                    balance: 0,
+                    withdrawn: false,
+                });
+            ledger.balance = ledger.balance.saturating_add(total_paid);
+            env.storage().persistent().set(&ledger_key, &ledger);
+            Self::extend_persistent_ttl(env, &ledger_key);
         }
 
         Self::extend_persistent_ttl(env, &key);

@@ -17,7 +17,11 @@
  */
 
 import { NextRequest } from "next/server";
-import { getIndexedEvents, getEventsAfterCursor, getLatestCursor } from "@/lib/indexer";
+import {
+  getIndexedEvents,
+  getEventsAfterCursor,
+  getLatestCursor,
+} from "@/lib/indexer";
 
 export const dynamic = "force-dynamic";
 
@@ -30,7 +34,7 @@ export async function GET(req: NextRequest) {
   let cursor = "";
 
   // Extract cursor from query params for reconnection
-  const urlCursor = req.nextUrl.searchParams.get('cursor');
+  const urlCursor = req.nextUrl.searchParams.get("cursor");
   if (urlCursor) {
     cursor = urlCursor;
   }
@@ -54,18 +58,25 @@ export async function GET(req: NextRequest) {
       if (cursor) {
         // Replay events after the cursor for reconnection
         initialEvents = getEventsAfterCursor(cursor);
-        send("reconnect", JSON.stringify({ 
-          events: initialEvents, 
-          type: "replay",
-          cursor: cursor 
-        }));
+        send(
+          "reconnect",
+          JSON.stringify({
+            events: initialEvents,
+            type: "replay",
+            cursor: cursor,
+          }),
+        );
       } else {
         // Initial snapshot
         initialEvents = await getIndexedEvents();
         if (initialEvents.length > 0) {
           lastEventId = initialEvents[initialEvents.length - 1].id;
         }
-        send("events", JSON.stringify({ events: initialEvents, type: "snapshot" }), lastEventId || undefined);
+        send(
+          "events",
+          JSON.stringify({ events: initialEvents, type: "snapshot" }),
+          lastEventId || undefined,
+        );
       }
 
       // Update cursor tracking
@@ -85,7 +96,11 @@ export async function GET(req: NextRequest) {
           if (newEvents.length > 0) {
             lastEventId = newEvents[newEvents.length - 1].id;
             cursor = `${newEvents[newEvents.length - 1].ledger}-0-0-0`;
-            send("events", JSON.stringify({ events: newEvents, type: "update" }), lastEventId);
+            send(
+              "events",
+              JSON.stringify({ events: newEvents, type: "update" }),
+              lastEventId,
+            );
           }
         } catch {
           // swallow — client will reconnect via SSE retry
@@ -102,7 +117,11 @@ export async function GET(req: NextRequest) {
         closed = true;
         clearInterval(pollTimer);
         clearInterval(heartbeatTimer);
-        try { controller.close(); } catch { /* already closed */ }
+        try {
+          controller.close();
+        } catch {
+          /* already closed */
+        }
       };
 
       // ReadableStream cancel is called on client disconnect

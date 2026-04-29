@@ -73,7 +73,9 @@ function example2_sorobanTypes() {
   console.log("Price:", price);
 
   // Address
-  const organizer = decodeAddress("GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX");
+  const organizer = decodeAddress(
+    "GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+  );
   console.log("Organizer:", organizer);
 }
 
@@ -161,11 +163,7 @@ function example6_tuples() {
   console.log("\n=== Example 6: Tuples ===");
 
   // TBA token tuple: (chain_id, token_contract, token_id)
-  const decodeToken = decodeTuple(
-    decodeU32,
-    decodeAddress,
-    decodeU128
-  );
+  const decodeToken = decodeTuple(decodeU32, decodeAddress, decodeU128);
 
   const token = decodeToken([
     1,
@@ -221,7 +219,12 @@ function example7_contractDecoders() {
     total_paid: 2000000000n,
   });
 
-  console.log("Purchase:", purchase.quantity, "tickets for", purchase.total_paid);
+  console.log(
+    "Purchase:",
+    purchase.quantity,
+    "tickets for",
+    purchase.total_paid,
+  );
 }
 
 // ============================================================================
@@ -240,7 +243,7 @@ function example8_nested() {
         name: decodeString,
         price: decodeI128,
         available: decodeU32,
-      })
+      }),
     ),
     organizer: decodeAddress,
   });
@@ -268,10 +271,7 @@ function example9_transform() {
   console.log("\n=== Example 9: Transform Values ===");
 
   // Decode and convert to uppercase
-  const decodeUppercase = decodeTransform(
-    decodeString,
-    (s) => s.toUpperCase()
-  );
+  const decodeUppercase = decodeTransform(decodeString, (s) => s.toUpperCase());
 
   const theme = decodeUppercase("web3 conference");
   console.log("Theme:", theme);
@@ -279,7 +279,7 @@ function example9_transform() {
   // Decode price and convert to dollars
   const decodePriceInDollars = decodeTransform(
     decodeI128,
-    (stroops) => Number(stroops) / 10000000 // Convert stroops to XLM
+    (stroops) => Number(stroops) / 10000000, // Convert stroops to XLM
   );
 
   const priceInDollars = decodePriceInDollars(50000000n);
@@ -288,7 +288,7 @@ function example9_transform() {
   // Decode timestamp and convert to Date
   const decodeDate = decodeTransform(
     decodeU64,
-    (timestamp) => new Date(timestamp * 1000)
+    (timestamp) => new Date(timestamp * 1000),
   );
 
   const eventDate = decodeDate(1234567890);
@@ -306,7 +306,7 @@ function example10_validate() {
   const decodePositivePrice = decodeValidate(
     decodeI128,
     (price) => price > 0n,
-    "Price must be positive"
+    "Price must be positive",
   );
 
   try {
@@ -323,7 +323,7 @@ function example10_validate() {
   const decodeEmail = decodeValidate(
     decodeString,
     (email) => email.includes("@"),
-    "Invalid email format"
+    "Invalid email format",
   );
 
   try {
@@ -353,7 +353,7 @@ function example11_defaults() {
   // Decode optional with default
   const decodeOptionalName = decodeWithDefault(
     decodeOption(decodeString),
-    "Anonymous"
+    "Anonymous",
   );
 
   const name1 = decodeOptionalName("Alice");
@@ -371,10 +371,7 @@ function example12_oneOf() {
   console.log("\n=== Example 12: One Of ===");
 
   // Decode number or string
-  const decodeNumberOrString = decodeOneOf(
-    decodeNumber,
-    decodeString
-  );
+  const decodeNumberOrString = decodeOneOf(decodeNumber, decodeString);
 
   const value1 = decodeNumberOrString(42);
   console.log("Value 1:", value1, typeof value1);
@@ -383,10 +380,7 @@ function example12_oneOf() {
   console.log("Value 2:", value2, typeof value2);
 
   // Decode bigint or number
-  const decodeBigIntOrNumber = decodeOneOf(
-    decodeBigInt,
-    decodeNumber
-  );
+  const decodeBigIntOrNumber = decodeOneOf(decodeBigInt, decodeNumber);
 
   const amount1 = decodeBigIntOrNumber(1000000000n);
   console.log("Amount 1:", amount1);
@@ -405,7 +399,7 @@ function example13_enums() {
   // Event type enum
   const decodeEventType = decodeEnum(
     ["Conference", "Concert", "Workshop", "Meetup"] as const,
-    "EventType"
+    "EventType",
   );
 
   const type1 = decodeEventType("Conference");
@@ -421,7 +415,7 @@ function example13_enums() {
   // Status enum
   const decodeStatus = decodeEnum(
     ["pending", "active", "completed", "canceled"] as const,
-    "Status"
+    "Status",
   );
 
   const status = decodeStatus("active");

@@ -20,17 +20,28 @@ import * as z from "zod";
 
 const orchestrationSchema = z.object({
   eventTheme: z.string().min(1, "Event theme required"),
-  ticketPrice: z.coerce.number({ invalid_type_error: "Price must be a number" }).min(0, "Price cannot be negative"),
-  totalTickets: z.coerce.number({ invalid_type_error: "Tickets must be a number" }).int("Must be a positive integer").positive("Must be a positive integer"),
-  quantityToBuy: z.coerce.number({ invalid_type_error: "Quantity must be a number" }).int("Must be a positive integer").positive("Must be a positive integer"),
-  listingPrice: z.coerce.number({ invalid_type_error: "Listing price must be a number" }).min(0, "Price cannot be negative"),
+  ticketPrice: z.coerce
+    .number({ invalid_type_error: "Price must be a number" })
+    .min(0, "Price cannot be negative"),
+  totalTickets: z.coerce
+    .number({ invalid_type_error: "Tickets must be a number" })
+    .int("Must be a positive integer")
+    .positive("Must be a positive integer"),
+  quantityToBuy: z.coerce
+    .number({ invalid_type_error: "Quantity must be a number" })
+    .int("Must be a positive integer")
+    .positive("Must be a positive integer"),
+  listingPrice: z.coerce
+    .number({ invalid_type_error: "Listing price must be a number" })
+    .min(0, "Price cannot be negative"),
 });
 
 type OrchestrationFormData = z.infer<typeof orchestrationSchema>;
 
 export default function OrchestrationExamplePage() {
   const router = useRouter();
-  const { address, isInstalled, connect, providerName, signTransaction } = useWallet();
+  const { address, isInstalled, connect, providerName, signTransaction } =
+    useWallet();
   const [step, setStep] = useState(0);
   const [eventId, setEventId] = useState<number | null>(null);
   const [ticketContract, setTicketContract] = useState<string | null>(null);
@@ -39,7 +50,10 @@ export default function OrchestrationExamplePage() {
   const [logs, setLogs] = useState<string[]>([]);
 
   const addLog = (message: string) => {
-    setLogs(prev => [...prev, `${new Date().toLocaleTimeString()}: ${message}`]);
+    setLogs((prev) => [
+      ...prev,
+      `${new Date().toLocaleTimeString()}: ${message}`,
+    ]);
   };
 
   const {
@@ -81,9 +95,10 @@ export default function OrchestrationExamplePage() {
           endTimeUnix: Math.floor(Date.now() / 1000) + 7200, // 2 hours from now
           ticketPrice: BigInt(data.ticketPrice),
           totalTickets: BigInt(data.totalTickets),
-          paymentToken: "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC", // XLM
+          paymentToken:
+            "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC", // XLM
         },
-        signTransaction
+        signTransaction,
       );
       addLog(`Event created with ID: ${createResult.returnValue?.value?.u32}`);
       const newEventId = createResult.returnValue?.value?.u32;
@@ -92,7 +107,7 @@ export default function OrchestrationExamplePage() {
 
       // Get the event to find ticket contract
       const events = await getAllEvents();
-      const event = events.find(e => e.id === newEventId);
+      const event = events.find((e) => e.id === newEventId);
       if (event?.ticket_nft_addr) {
         setTicketContract(event.ticket_nft_addr);
         addLog(`Ticket NFT contract deployed: ${event.ticket_nft_addr}`);
@@ -106,7 +121,7 @@ export default function OrchestrationExamplePage() {
           eventId: newEventId,
           quantity: BigInt(data.quantityToBuy),
         },
-        signTransaction
+        signTransaction,
       );
       addLog(`Bought ${data.quantityToBuy} tickets`);
       setStep(2);
@@ -118,7 +133,11 @@ export default function OrchestrationExamplePage() {
       }
 
       // Step 3: List on Marketplace (if configured)
-      if (isMarketplaceConfigured() && event?.ticket_nft_addr && tokenId !== null) {
+      if (
+        isMarketplaceConfigured() &&
+        event?.ticket_nft_addr &&
+        tokenId !== null
+      ) {
         addLog("Step 3: Listing ticket on marketplace...");
         await createListing(
           {
@@ -127,7 +146,7 @@ export default function OrchestrationExamplePage() {
             tokenId: tokenId,
             price: BigInt(data.listingPrice),
           },
-          signTransaction
+          signTransaction,
         );
         addLog(`Listed ticket for ${data.listingPrice} XLM`);
         setStep(3);
@@ -161,13 +180,25 @@ export default function OrchestrationExamplePage() {
 
           <div className="bg-white rounded-lg shadow-md p-6 mb-8">
             <p className="text-gray-600 mb-4">
-              This example demonstrates calling functions across multiple Soroban contracts:
+              This example demonstrates calling functions across multiple
+              Soroban contracts:
             </p>
             <ul className="list-disc list-inside text-gray-600 space-y-1">
-              <li><strong>Event Manager:</strong> Create events and purchase tickets</li>
-              <li><strong>Ticket Factory:</strong> Deploy ticket NFT contracts (called internally)</li>
-              <li><strong>Ticket NFT:</strong> Mint and manage ticket NFTs (called internally)</li>
-              <li><strong>Marketplace:</strong> List and trade tickets (optional)</li>
+              <li>
+                <strong>Event Manager:</strong> Create events and purchase
+                tickets
+              </li>
+              <li>
+                <strong>Ticket Factory:</strong> Deploy ticket NFT contracts
+                (called internally)
+              </li>
+              <li>
+                <strong>Ticket NFT:</strong> Mint and manage ticket NFTs (called
+                internally)
+              </li>
+              <li>
+                <strong>Marketplace:</strong> List and trade tickets (optional)
+              </li>
             </ul>
           </div>
 
@@ -198,7 +229,9 @@ export default function OrchestrationExamplePage() {
                       className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />
                     {errors.eventTheme && (
-                      <p className="text-red-500 text-sm mt-1">{errors.eventTheme.message}</p>
+                      <p className="text-red-500 text-sm mt-1">
+                        {errors.eventTheme.message}
+                      </p>
                     )}
                   </div>
 
@@ -212,7 +245,9 @@ export default function OrchestrationExamplePage() {
                       className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />
                     {errors.ticketPrice && (
-                      <p className="text-red-500 text-sm mt-1">{errors.ticketPrice.message}</p>
+                      <p className="text-red-500 text-sm mt-1">
+                        {errors.ticketPrice.message}
+                      </p>
                     )}
                   </div>
 
@@ -226,7 +261,9 @@ export default function OrchestrationExamplePage() {
                       className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />
                     {errors.totalTickets && (
-                      <p className="text-red-500 text-sm mt-1">{errors.totalTickets.message}</p>
+                      <p className="text-red-500 text-sm mt-1">
+                        {errors.totalTickets.message}
+                      </p>
                     )}
                   </div>
 
@@ -240,7 +277,9 @@ export default function OrchestrationExamplePage() {
                       className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />
                     {errors.quantityToBuy && (
-                      <p className="text-red-500 text-sm mt-1">{errors.quantityToBuy.message}</p>
+                      <p className="text-red-500 text-sm mt-1">
+                        {errors.quantityToBuy.message}
+                      </p>
                     )}
                   </div>
 
@@ -254,7 +293,9 @@ export default function OrchestrationExamplePage() {
                       className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />
                     {errors.listingPrice && (
-                      <p className="text-red-500 text-sm mt-1">{errors.listingPrice.message}</p>
+                      <p className="text-red-500 text-sm mt-1">
+                        {errors.listingPrice.message}
+                      </p>
                     )}
                   </div>
                 </div>
@@ -264,7 +305,9 @@ export default function OrchestrationExamplePage() {
                   disabled={loading}
                   className="mt-6 bg-blue-600 text-white px-6 py-2 rounded hover:bg-blue-700 disabled:opacity-50"
                 >
-                  {loading ? "Running Orchestration..." : "Run Multi-Contract Orchestration"}
+                  {loading
+                    ? "Running Orchestration..."
+                    : "Run Multi-Contract Orchestration"}
                 </button>
               </div>
             </form>
@@ -273,20 +316,36 @@ export default function OrchestrationExamplePage() {
           <div className="bg-white rounded-lg shadow-md p-6">
             <h2 className="text-xl font-semibold mb-4">Progress</h2>
             <div className="space-y-2">
-              <div className={`flex items-center ${step >= 0 ? "text-green-600" : "text-gray-400"}`}>
-                <div className={`w-4 h-4 rounded-full mr-2 ${step >= 0 ? "bg-green-600" : "bg-gray-400"}`}></div>
+              <div
+                className={`flex items-center ${step >= 0 ? "text-green-600" : "text-gray-400"}`}
+              >
+                <div
+                  className={`w-4 h-4 rounded-full mr-2 ${step >= 0 ? "bg-green-600" : "bg-gray-400"}`}
+                ></div>
                 Connect Wallet
               </div>
-              <div className={`flex items-center ${step >= 1 ? "text-green-600" : "text-gray-400"}`}>
-                <div className={`w-4 h-4 rounded-full mr-2 ${step >= 1 ? "bg-green-600" : "bg-gray-400"}`}></div>
+              <div
+                className={`flex items-center ${step >= 1 ? "text-green-600" : "text-gray-400"}`}
+              >
+                <div
+                  className={`w-4 h-4 rounded-full mr-2 ${step >= 1 ? "bg-green-600" : "bg-gray-400"}`}
+                ></div>
                 Create Event (Event Manager → Ticket Factory → Ticket NFT)
               </div>
-              <div className={`flex items-center ${step >= 2 ? "text-green-600" : "text-gray-400"}`}>
-                <div className={`w-4 h-4 rounded-full mr-2 ${step >= 2 ? "bg-green-600" : "bg-gray-400"}`}></div>
+              <div
+                className={`flex items-center ${step >= 2 ? "text-green-600" : "text-gray-400"}`}
+              >
+                <div
+                  className={`w-4 h-4 rounded-full mr-2 ${step >= 2 ? "bg-green-600" : "bg-gray-400"}`}
+                ></div>
                 Buy Tickets (Event Manager → Ticket NFT)
               </div>
-              <div className={`flex items-center ${step >= 3 ? "text-green-600" : "text-gray-400"}`}>
-                <div className={`w-4 h-4 rounded-full mr-2 ${step >= 3 ? "bg-green-600" : "bg-gray-400"}`}></div>
+              <div
+                className={`flex items-center ${step >= 3 ? "text-green-600" : "text-gray-400"}`}
+              >
+                <div
+                  className={`w-4 h-4 rounded-full mr-2 ${step >= 3 ? "bg-green-600" : "bg-gray-400"}`}
+                ></div>
                 List on Marketplace (optional)
               </div>
             </div>
@@ -296,11 +355,15 @@ export default function OrchestrationExamplePage() {
             <h2 className="text-xl font-semibold mb-4">Logs</h2>
             <div className="bg-gray-100 p-4 rounded max-h-96 overflow-y-auto">
               {logs.length === 0 ? (
-                <p className="text-gray-500">No logs yet. Run the orchestration to see the process.</p>
+                <p className="text-gray-500">
+                  No logs yet. Run the orchestration to see the process.
+                </p>
               ) : (
                 <div className="space-y-1">
                   {logs.map((log, index) => (
-                    <p key={index} className="text-sm font-mono">{log}</p>
+                    <p key={index} className="text-sm font-mono">
+                      {log}
+                    </p>
                   ))}
                 </div>
               )}
