@@ -214,6 +214,8 @@ pub struct TicketPurchasedEvent {
     pub tier_index: u32,
 }
 
+/// Per-attendee POAP metadata sent over the wire to the POAP NFT contract's
+/// `mint_poap` entry point. Field shape must match `poap_nft::PoapMetadata`.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EventUpdatedEvent {
