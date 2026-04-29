@@ -25,8 +25,11 @@ const config: Config = {
   moduleNameMapper: {
     // Handle module aliases
     "^@/(.*)$": "<rootDir>/$1",
+<<<<<<< HEAD
+=======
     "^next-intl$": "<rootDir>/__mocks__/next-intl.ts",
     "^next-intl/(.*)$": "<rootDir>/__mocks__/next-intl.ts",
+>>>>>>> upstream/main
   },
   // next-intl ships ESM; allow Next/Jest to transpile it for tests.
   transformIgnorePatterns: ["/node_modules/(?!next-intl|use-intl)/"],

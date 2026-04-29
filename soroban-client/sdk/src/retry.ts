@@ -64,12 +64,12 @@ export function isRetryableError(error: unknown): boolean {
  */
 export function calculateDelay(
   attempt: number,
-  config: Required<RetryConfig>
+  config: Required<RetryConfig>,
 ): number {
   // Calculate exponential backoff
   const exponentialDelay = Math.min(
     config.initialDelayMs * Math.pow(config.backoffMultiplier, attempt),
-    config.maxDelayMs
+    config.maxDelayMs,
   );
 
   // Apply jitter if enabled
@@ -95,7 +95,7 @@ function sleep(ms: number): Promise<void> {
 export async function withRetry<T>(
   fn: () => Promise<T>,
   config: RetryConfig = {},
-  context?: string
+  context?: string,
 ): Promise<T> {
   const fullConfig: Required<RetryConfig> = {
     ...DEFAULT_RETRY_CONFIG,
@@ -125,7 +125,7 @@ export async function withRetry<T>(
       const contextMsg = context ? ` (${context})` : "";
       console.warn(
         `RPC call failed${contextMsg}, retrying in ${Math.round(delay)}ms (attempt ${attempt + 1}/${fullConfig.maxRetries})...`,
-        error instanceof Error ? error.message : String(error)
+        error instanceof Error ? error.message : String(error),
       );
 
       await sleep(delay);

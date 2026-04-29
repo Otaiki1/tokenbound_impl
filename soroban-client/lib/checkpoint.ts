@@ -127,9 +127,10 @@ export function createDefaultCheckpointStore(): CheckpointStore {
     return new NoopCheckpointStore();
   }
   const configured = process.env.EVENT_CHECKPOINT_PATH;
-  const target = configured && configured.length > 0
-    ? configured
-    : path.join(process.cwd(), ".checkpoints", "events.json");
+  const target =
+    configured && configured.length > 0
+      ? configured
+      : path.join(process.cwd(), ".checkpoints", "events.json");
   return new FileCheckpointStore(target);
 }
 

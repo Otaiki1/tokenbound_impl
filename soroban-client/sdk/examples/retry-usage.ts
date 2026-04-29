@@ -52,27 +52,24 @@ async function customRetryPolicy() {
   });
 
   // Retry a custom RPC operation
-  const result = await retryPolicy.execute(
-    async () => {
-      // Your custom RPC call here
-      const response = await fetch("https://soroban-testnet.stellar.org", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          jsonrpc: "2.0",
-          id: 1,
-          method: "getHealth",
-        }),
-      });
+  const result = await retryPolicy.execute(async () => {
+    // Your custom RPC call here
+    const response = await fetch("https://soroban-testnet.stellar.org", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "getHealth",
+      }),
+    });
 
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    }
 
-      return response.json();
-    },
-    "custom RPC health check"
-  );
+    return response.json();
+  }, "custom RPC health check");
 
   console.log("Health check result:", result);
 }
@@ -90,7 +87,7 @@ async function oneOffRetry() {
       initialDelayMs: 500,
       enableJitter: false,
     },
-    "fetch external data"
+    "fetch external data",
   );
 
   console.log("Data:", result);
@@ -190,7 +187,7 @@ async function errorHandling() {
           // Sign transaction
           return xdr; // Return signed XDR
         },
-      }
+      },
     );
 
     console.log("Event created:", result);

@@ -105,25 +105,28 @@ function chunk<T>(items: readonly T[], size: number): T[][] {
 async function runWithConcurrency<T>(
   count: number,
   concurrency: number,
-  worker: (index: number) => Promise<T>
+  worker: (index: number) => Promise<T>,
 ): Promise<T[]> {
   if (concurrency < 1 || !Number.isFinite(concurrency)) {
     throw new Error(
-      `concurrency must be a positive integer (got ${concurrency}).`
+      `concurrency must be a positive integer (got ${concurrency}).`,
     );
   }
   const results: T[] = new Array(count);
   let nextIndex = 0;
-  const workers = Array.from({ length: Math.min(concurrency, count) }, async () => {
-    while (true) {
-      const index = nextIndex;
-      nextIndex += 1;
-      if (index >= count) {
-        return;
+  const workers = Array.from(
+    { length: Math.min(concurrency, count) },
+    async () => {
+      while (true) {
+        const index = nextIndex;
+        nextIndex += 1;
+        if (index >= count) {
+          return;
+        }
+        results[index] = await worker(index);
       }
-      results[index] = await worker(index);
-    }
-  });
+    },
+  );
   await Promise.all(workers);
   return results;
 }
@@ -149,7 +152,7 @@ async function runWithConcurrency<T>(
 export async function batchGetLedgerEntries(
   rpcClient: LedgerEntriesFetcher,
   keys: readonly xdr.LedgerKey[],
-  options?: BatchLedgerEntriesOptions
+  options?: BatchLedgerEntriesOptions,
 ): Promise<BatchLedgerEntriesResult> {
   const chunkSize = options?.chunkSize ?? DEFAULT_BATCH_CHUNK_SIZE;
   const concurrency = options?.concurrency ?? DEFAULT_BATCH_CONCURRENCY;
@@ -182,7 +185,7 @@ export async function batchGetLedgerEntries(
 
   const indexChunks = chunk(
     Array.from({ length: keys.length }, (_, index) => index),
-    chunkSize
+    chunkSize,
   );
 
   const entries: Array<rpc.Api.LedgerEntryResult | null | undefined> =
@@ -190,42 +193,46 @@ export async function batchGetLedgerEntries(
   const errors: BatchLedgerChunkError[] = [];
   let latestLedger = 0;
 
-  await runWithConcurrency(indexChunks.length, concurrency, async (chunkIdx) => {
-    const chunkIndexes = indexChunks[chunkIdx];
-    const chunkKeys = chunkIndexes.map((index) => keys[index]);
-    let response: rpc.Api.GetLedgerEntriesResponse;
-    try {
-      response = await rpcClient.getLedgerEntries(...chunkKeys);
-    } catch (error) {
-      errors.push({ indexes: chunkIndexes, error });
-      return;
-    }
-
-    if (response.latestLedger > latestLedger) {
-      latestLedger = response.latestLedger;
-    }
-
-    // Default every index in this chunk to `null` (missing). Then fill in
-    // the entries the RPC actually returned.
-    for (const index of chunkIndexes) {
-      entries[index] = null;
-    }
-
-    for (const entry of response.entries) {
-      const id = keyId(entry.key);
-      const matchingIndexes = indexesByKeyId.get(id);
-      if (!matchingIndexes) {
-        // Defensive: RPC returned a key we didn't ask for. Skip rather
-        // than throw so the rest of the batch is still usable.
-        continue;
+  await runWithConcurrency(
+    indexChunks.length,
+    concurrency,
+    async (chunkIdx) => {
+      const chunkIndexes = indexChunks[chunkIdx];
+      const chunkKeys = chunkIndexes.map((index) => keys[index]);
+      let response: rpc.Api.GetLedgerEntriesResponse;
+      try {
+        response = await rpcClient.getLedgerEntries(...chunkKeys);
+      } catch (error) {
+        errors.push({ indexes: chunkIndexes, error });
+        return;
       }
-      for (const index of matchingIndexes) {
-        if (chunkIndexes.includes(index)) {
-          entries[index] = entry;
+
+      if (response.latestLedger > latestLedger) {
+        latestLedger = response.latestLedger;
+      }
+
+      // Default every index in this chunk to `null` (missing). Then fill in
+      // the entries the RPC actually returned.
+      for (const index of chunkIndexes) {
+        entries[index] = null;
+      }
+
+      for (const entry of response.entries) {
+        const id = keyId(entry.key);
+        const matchingIndexes = indexesByKeyId.get(id);
+        if (!matchingIndexes) {
+          // Defensive: RPC returned a key we didn't ask for. Skip rather
+          // than throw so the rest of the batch is still usable.
+          continue;
+        }
+        for (const index of matchingIndexes) {
+          if (chunkIndexes.includes(index)) {
+            entries[index] = entry;
+          }
         }
       }
-    }
-  });
+    },
+  );
 
   let found = 0;
   let missing = 0;

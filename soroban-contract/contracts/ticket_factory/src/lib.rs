@@ -110,7 +110,7 @@ impl TicketFactory {
         let deployed_address = env
             .deployer()
             .with_address(env.current_contract_address(), salt)
-            .deploy(wasm_hash, constructor_args);
+            .deploy_v2(wasm_hash, constructor_args);
 
         // Increment ticket count and store the mapping
         let ticket_id: u32 = env
@@ -221,6 +221,27 @@ impl TicketFactory {
 
     pub fn commit_upgrade(env: Env) {
         upg::commit_upgrade(&env);
+    }
+
+    /// Immediate (fast-path) upgrade. Admin-only, no timelock — see
+    /// `upgradeable::upgrade` for the full security note. Reserve for
+    /// emergencies; prefer `schedule_upgrade` + `commit_upgrade` for
+    /// routine upgrades.
+    pub fn upgrade(env: Env, new_wasm_hash: BytesN<32>) {
+        upg::upgrade(&env, new_wasm_hash);
+    }
+
+    /// Apply post-upgrade state-shape migrations and bump the version to
+    /// `target_version`. Admin-only; rejects downgrades.
+    pub fn migrate(env: Env, target_version: u32) {
+        upg::require_admin(&env);
+        upg::require_version_increase(&env, target_version);
+
+        match target_version {
+            _ => {}
+        }
+
+        upg::migration_completed(&env, target_version);
     }
 
     pub fn pause(env: Env) {

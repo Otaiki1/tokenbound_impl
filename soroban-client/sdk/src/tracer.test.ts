@@ -51,14 +51,23 @@ describe("startSpan", () => {
   });
 
   it("calls onSpanStart hook with the new span", () => {
-    const onStart = jest.fn()
-    const span = startSpan("simulate", CONTRACT, METHOD, CORRELATION, {}, onStart);
+    const onStart = jest.fn();
+    const span = startSpan(
+      "simulate",
+      CONTRACT,
+      METHOD,
+      CORRELATION,
+      {},
+      onStart,
+    );
     expect(onStart).toHaveBeenCalledTimes(1);
     expect(onStart).toHaveBeenCalledWith(span);
   });
 
   it("does not throw when onSpanStart is undefined", () => {
-    expect(() => startSpan("simulate", CONTRACT, METHOD, CORRELATION, {}, undefined)).not.toThrow();
+    expect(() =>
+      startSpan("simulate", CONTRACT, METHOD, CORRELATION, {}, undefined),
+    ).not.toThrow();
   });
 
   it("generates a unique spanId per call", () => {
@@ -88,7 +97,7 @@ describe("endSpan", () => {
   });
 
   it("calls onSpanEnd hook with the finalised span", () => {
-    const onEnd = jest.fn()
+    const onEnd = jest.fn();
     const span = startSpan("simulate", CONTRACT, METHOD, CORRELATION);
     endSpan(span, true, undefined, onEnd);
     expect(onEnd).toHaveBeenCalledTimes(1);
@@ -112,20 +121,30 @@ describe("endSpan", () => {
 describe("withSpan", () => {
   it("returns the value from fn on success", async () => {
     const result = await withSpan(
-      "read", CONTRACT, METHOD, CORRELATION, {},
-      undefined, undefined,
-      async () => 42
+      "read",
+      CONTRACT,
+      METHOD,
+      CORRELATION,
+      {},
+      undefined,
+      undefined,
+      async () => 42,
     );
     expect(result).toBe(42);
   });
 
   it("calls onSpanStart and onSpanEnd on success", async () => {
-    const onStart = jest.fn()
-    const onEnd = jest.fn()
+    const onStart = jest.fn();
+    const onEnd = jest.fn();
     await withSpan(
-      "simulate", CONTRACT, METHOD, CORRELATION, {},
-      onStart, onEnd,
-      async () => "ok"
+      "simulate",
+      CONTRACT,
+      METHOD,
+      CORRELATION,
+      {},
+      onStart,
+      onEnd,
+      async () => "ok",
     );
     expect(onStart).toHaveBeenCalledTimes(1);
     expect(onEnd).toHaveBeenCalledTimes(1);
@@ -135,13 +154,20 @@ describe("withSpan", () => {
   });
 
   it("rethrows errors and marks span as failed", async () => {
-    const onEnd = jest.fn()
+    const onEnd = jest.fn();
     await expect(
       withSpan(
-        "write", CONTRACT, METHOD, CORRELATION, {},
-        undefined, onEnd,
-        async () => { throw new Error("contract error"); }
-      )
+        "write",
+        CONTRACT,
+        METHOD,
+        CORRELATION,
+        {},
+        undefined,
+        onEnd,
+        async () => {
+          throw new Error("contract error");
+        },
+      ),
     ).rejects.toThrow("contract error");
 
     const span: TraceSpan = onEnd.mock.calls[0][0];
@@ -150,13 +176,20 @@ describe("withSpan", () => {
   });
 
   it("always calls onSpanEnd even on error", async () => {
-    const onEnd = jest.fn()
+    const onEnd = jest.fn();
     await expect(
       withSpan(
-        "write", CONTRACT, METHOD, CORRELATION, {},
-        undefined, onEnd,
-        async () => { throw new Error("boom"); }
-      )
+        "write",
+        CONTRACT,
+        METHOD,
+        CORRELATION,
+        {},
+        undefined,
+        onEnd,
+        async () => {
+          throw new Error("boom");
+        },
+      ),
     ).rejects.toThrow();
     expect(onEnd).toHaveBeenCalledTimes(1);
   });
@@ -164,9 +197,17 @@ describe("withSpan", () => {
   it("passes the span to fn", async () => {
     let capturedSpan: TraceSpan | undefined;
     await withSpan(
-      "read", CONTRACT, METHOD, CORRELATION, { contractId: "CX" },
-      undefined, undefined,
-      async (span) => { capturedSpan = span; return null; }
+      "read",
+      CONTRACT,
+      METHOD,
+      CORRELATION,
+      { contractId: "CX" },
+      undefined,
+      undefined,
+      async (span) => {
+        capturedSpan = span;
+        return null;
+      },
     );
     expect(capturedSpan?.attributes.contractId).toBe("CX");
     expect(capturedSpan?.correlationId).toBe(CORRELATION);
@@ -175,23 +216,26 @@ describe("withSpan", () => {
   it("preserves correlationId across start and end", async () => {
     const spans: TraceSpan[] = [];
     await withSpan(
-      "simulate", CONTRACT, METHOD, "my-correlation", {},
+      "simulate",
+      CONTRACT,
+      METHOD,
+      "my-correlation",
+      {},
       (s) => spans.push({ ...s }),
       (s) => spans.push({ ...s }),
-      async () => null
+      async () => null,
     );
     expect(spans[0].correlationId).toBe("my-correlation");
     expect(spans[1].correlationId).toBe("my-correlation");
   });
 });
 
-
 // ── SorobanSdkCore tracing integration ────────────────────────────────────────
 
 describe("SorobanSdkCore — tracing config", () => {
   function resolveCorrelationId(
     options?: { correlationId?: string },
-    autoCorrelation = true
+    autoCorrelation = true,
   ): string {
     if (options?.correlationId) return options.correlationId;
     if (autoCorrelation !== false) return generateId();

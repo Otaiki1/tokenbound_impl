@@ -39,7 +39,9 @@ const sampleEvent: IndexedEvent = {
   status: "active",
 };
 
-function makeCheckpoint(overrides: Partial<ConsumerCheckpoint> = {}): ConsumerCheckpoint {
+function makeCheckpoint(
+  overrides: Partial<ConsumerCheckpoint> = {},
+): ConsumerCheckpoint {
   return {
     version: CHECKPOINT_SCHEMA_VERSION,
     lastLedger: 100,
@@ -89,8 +91,11 @@ describe("FileCheckpointStore", () => {
     const store = new FileCheckpointStore(file);
     await fs.writeFile(
       file,
-      JSON.stringify({ ...makeCheckpoint(), version: CHECKPOINT_SCHEMA_VERSION + 1 }),
-      "utf8"
+      JSON.stringify({
+        ...makeCheckpoint(),
+        version: CHECKPOINT_SCHEMA_VERSION + 1,
+      }),
+      "utf8",
     );
     expect(await store.load()).toBeNull();
   });
@@ -163,14 +168,17 @@ describe("indexer checkpoint integration", () => {
     store = new MemoryCheckpointStore();
     setCheckpointStore(store);
     fetchMock.mockReset();
-    (global as { fetch: typeof fetch }).fetch = fetchMock as unknown as typeof fetch;
+    (global as { fetch: typeof fetch }).fetch =
+      fetchMock as unknown as typeof fetch;
   });
 
   afterEach(() => {
     (global as { fetch: typeof fetch }).fetch = originalFetch;
   });
 
-  function mockHorizonResponse(records: Array<{ ledger: number; eventId: number }>) {
+  function mockHorizonResponse(
+    records: Array<{ ledger: number; eventId: number }>,
+  ) {
     fetchMock.mockResolvedValueOnce({
       ok: true,
       json: async () => ({
@@ -210,7 +218,9 @@ describe("indexer checkpoint integration", () => {
   });
 
   it("resumes from a saved checkpoint without re-scanning history", async () => {
-    await store.save(makeCheckpoint({ lastLedger: 500, events: [sampleEvent] }));
+    await store.save(
+      makeCheckpoint({ lastLedger: 500, events: [sampleEvent] }),
+    );
     // No fetch is queued. If hydration works, the cached events are returned
     // without forcing a Horizon call (cache TTL defeated by hydrated state
     // means we *do* poll once on the first call, so queue an empty response).

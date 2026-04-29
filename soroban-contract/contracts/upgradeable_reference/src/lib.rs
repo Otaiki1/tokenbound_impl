@@ -46,8 +46,11 @@ impl UpgradeableReference {
         upg::set_admin(&env, &admin);
         upg::init_version(&env);
 
-        env.storage().persistent().set(&DataKey::Counter, &0u32);
-        upg::extend_persistent_ttl(&env, &DataKey::Counter);
+        // STORAGE: the counter is per-contract singleton state — exactly the
+        // shape `instance` storage was designed for. It rides the contract
+        // instance entry's TTL (already bumped via `extend_instance_ttl`),
+        // so no separate persistent entry or extension call is needed.
+        env.storage().instance().set(&DataKey::Counter, &0u32);
         upg::extend_instance_ttl(&env);
     }
 
@@ -59,20 +62,23 @@ impl UpgradeableReference {
         upg::require_not_paused(&env);
         caller.require_auth();
 
+        // STORAGE: read + write against the same instance entry. Single
+        // `extend_instance_ttl` at the end covers the whole instance,
+        // including the Counter slot.
         let current: u32 = env
             .storage()
-            .persistent()
+            .instance()
             .get(&DataKey::Counter)
             .unwrap_or(0);
         let next = current.checked_add(1).expect("counter overflow");
-        env.storage().persistent().set(&DataKey::Counter, &next);
-        upg::extend_persistent_ttl(&env, &DataKey::Counter);
+        env.storage().instance().set(&DataKey::Counter, &next);
+        upg::extend_instance_ttl(&env);
         next
     }
 
     pub fn get(env: Env) -> u32 {
         env.storage()
-            .persistent()
+            .instance()
             .get(&DataKey::Counter)
             .unwrap_or(0)
     }
@@ -93,6 +99,47 @@ impl UpgradeableReference {
 
     pub fn commit_upgrade(env: Env) {
         upg::commit_upgrade(&env);
+    }
+
+    /// Immediate (fast-path) upgrade — replaces the contract WASM in one call.
+    ///
+    /// # Security
+    /// - Admin-only: `require_auth()` is enforced inside `upg::upgrade`.
+    /// - The new WASM must already be uploaded via
+    ///   `env.deployer().upload_contract_wasm(...)`.
+    /// - This entry point skips the 24-hour timelock that gates
+    ///   `schedule_upgrade` / `commit_upgrade`. Operators should reserve it
+    ///   for emergencies (live exploit response) and prefer the timelocked
+    ///   path for routine upgrades.
+    /// - Increments the on-chain version counter and emits an `Upgraded`
+    ///   event for off-chain audit trails.
+    pub fn upgrade(env: Env, new_wasm_hash: BytesN<32>) {
+        upg::upgrade(&env, new_wasm_hash);
+    }
+
+    /// Apply post-upgrade state-shape migrations and bump the version to
+    /// `target_version`.
+    ///
+    /// # Security
+    /// - Admin-only.
+    /// - Panics if `target_version <= current_version` (downgrade guard
+    ///   enforced by `upg::require_version_increase`).
+    ///
+    /// Each future schema change adds a `match target_version` arm with the
+    /// transformation logic. The reference contract has no migrations yet,
+    /// so the body is a pass-through that records the new version.
+    pub fn migrate(env: Env, target_version: u32) {
+        upg::require_admin(&env);
+        upg::require_version_increase(&env, target_version);
+
+        // Per-version migration logic lives here. Add new arms as the
+        // contract's storage shape evolves; the wildcard arm is a no-op
+        // for versions that don't need data migration.
+        match target_version {
+            _ => {}
+        }
+
+        upg::migration_completed(&env, target_version);
     }
 
     pub fn pause(env: Env) {

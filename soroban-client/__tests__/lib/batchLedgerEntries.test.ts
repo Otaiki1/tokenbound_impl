@@ -22,7 +22,7 @@ interface FakeBatchResponse {
 }
 
 function buildFetcher(
-  handler: (keys: FakeKey[]) => Promise<FakeBatchResponse> | FakeBatchResponse
+  handler: (keys: FakeKey[]) => Promise<FakeBatchResponse> | FakeBatchResponse,
 ): LedgerEntriesFetcher & { calls: FakeKey[][] } {
   const calls: FakeKey[][] = [];
   const fetcher = {
@@ -70,7 +70,7 @@ describe("batchGetLedgerEntries", () => {
     const result = await batchGetLedgerEntries(
       fetcher,
       ["a", "b", "c"] as never,
-      baseOptions()
+      baseOptions(),
     );
 
     expect(fetcher.calls).toEqual([["a", "b", "c"]]);
@@ -127,7 +127,7 @@ describe("batchGetLedgerEntries", () => {
     const result = await batchGetLedgerEntries(
       fetcher,
       ["a", "missing-1", "b", "missing-2", "c"] as never,
-      baseOptions()
+      baseOptions(),
     );
 
     expect(result.entries).toEqual([
@@ -158,7 +158,7 @@ describe("batchGetLedgerEntries", () => {
     const result = await batchGetLedgerEntries(
       fetcher,
       ["a", "b", "c", "d"] as never,
-      { ...baseOptions(), chunkSize: 2, concurrency: 1 }
+      { ...baseOptions(), chunkSize: 2, concurrency: 1 },
     );
 
     expect(result.entries).toEqual([
@@ -191,7 +191,7 @@ describe("batchGetLedgerEntries", () => {
     const result = await batchGetLedgerEntries(
       fetcher,
       ["a", "b", "c"] as never,
-      { ...baseOptions(), chunkSize: 1, concurrency: 1 }
+      { ...baseOptions(), chunkSize: 1, concurrency: 1 },
     );
 
     expect(result.latestLedger).toBe(30);
@@ -202,11 +202,11 @@ describe("batchGetLedgerEntries", () => {
       throw new Error("network down");
     });
 
-    const result = await batchGetLedgerEntries(
-      fetcher,
-      ["a", "b"] as never,
-      { ...baseOptions(), chunkSize: 1, concurrency: 1 }
-    );
+    const result = await batchGetLedgerEntries(fetcher, ["a", "b"] as never, {
+      ...baseOptions(),
+      chunkSize: 1,
+      concurrency: 1,
+    });
 
     expect(result.latestLedger).toBe(0);
     expect(result.failed).toBe(2);
@@ -229,7 +229,7 @@ describe("batchGetLedgerEntries", () => {
     const result = await batchGetLedgerEntries(
       fetcher,
       ["x", "y", "x"] as never,
-      baseOptions()
+      baseOptions(),
     );
 
     expect(result.entries).toEqual([
@@ -252,13 +252,10 @@ describe("batchGetLedgerEntries", () => {
     const result = await batchGetLedgerEntries(
       fetcher,
       ["a", "b"] as never,
-      baseOptions()
+      baseOptions(),
     );
 
-    expect(result.entries).toEqual([
-      { key: "a", val: "a" },
-      null,
-    ]);
+    expect(result.entries).toEqual([{ key: "a", val: "a" }, null]);
     expect(result.errors).toEqual([]);
   });
 
@@ -292,14 +289,14 @@ describe("batchGetLedgerEntries", () => {
       batchGetLedgerEntries(fetcher, ["a"] as never, {
         ...baseOptions(),
         chunkSize: 0,
-      })
+      }),
     ).rejects.toThrow(/chunkSize/);
 
     await expect(
       batchGetLedgerEntries(fetcher, ["a"] as never, {
         ...baseOptions(),
         concurrency: 0,
-      })
+      }),
     ).rejects.toThrow(/concurrency/);
   });
 
@@ -311,7 +308,7 @@ describe("batchGetLedgerEntries", () => {
 
     const keys = Array.from(
       { length: DEFAULT_BATCH_CHUNK_SIZE + 1 },
-      (_, index) => `k${index}`
+      (_, index) => `k${index}`,
     );
 
     await batchGetLedgerEntries(fetcher, keys as never, baseOptions());

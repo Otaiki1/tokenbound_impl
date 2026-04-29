@@ -7,10 +7,7 @@ import {
 } from "@stellar/stellar-sdk";
 import { nativeToScVal } from "@stellar/stellar-base";
 
-import type {
-  ContractCallArtifact,
-  PreparedTransaction,
-} from "./types";
+import type { ContractCallArtifact, PreparedTransaction } from "./types";
 
 const DEFAULT_FEE = 100;
 const DEFAULT_TIMEOUT = 30;
@@ -43,7 +40,7 @@ export function buildOfflineTransaction(
   account: OfflineAccountStub,
   artifact: ContractCallArtifact,
   networkPassphrase: string,
-  options: OfflineBuildOptions = {}
+  options: OfflineBuildOptions = {},
 ): PreparedTransaction {
   // Account from stellar-sdk validates and manages sequence correctly
   const sdkAccount = new Account(account.accountId, account.sequenceNumber);
@@ -75,7 +72,7 @@ export function buildOfflineTransaction(
  */
 export function serializeTransaction(
   prepared: PreparedTransaction,
-  sequenceNumber: string
+  sequenceNumber: string,
 ): SerializedTransaction {
   return {
     xdr: prepared.xdr,
@@ -90,7 +87,7 @@ export function serializeTransaction(
  * so it can be signed and submitted.
  */
 export function deserializeTransaction(
-  serialized: SerializedTransaction
+  serialized: SerializedTransaction,
 ): PreparedTransaction {
   // Validate the XDR is parseable before returning
   TransactionBuilder.fromXDR(serialized.xdr, serialized.networkPassphrase);
@@ -106,11 +103,11 @@ export function deserializeTransaction(
  * Useful for inspecting or re-encoding before signing.
  */
 export function decodeTransactionXdr(
-  prepared: PreparedTransaction
+  prepared: PreparedTransaction,
 ): Transaction {
   return TransactionBuilder.fromXDR(
     prepared.xdr,
-    prepared.networkPassphrase
+    prepared.networkPassphrase,
   ) as Transaction;
 }
 
@@ -154,7 +151,7 @@ export function inspectTransaction(prepared: PreparedTransaction): {
 export function buildContractArtifact(
   contractId: string,
   method: string,
-  args: ReturnType<typeof nativeToScVal>[]
+  args: ReturnType<typeof nativeToScVal>[],
 ): ContractCallArtifact {
   return { contractId, method, args };
 }
@@ -179,16 +176,21 @@ export class OfflineTransactionBuilder {
   build(
     account: OfflineAccountStub,
     artifact: ContractCallArtifact,
-    options: OfflineBuildOptions = {}
+    options: OfflineBuildOptions = {},
   ): PreparedTransaction {
-    return buildOfflineTransaction(account, artifact, this.networkPassphrase, options);
+    return buildOfflineTransaction(
+      account,
+      artifact,
+      this.networkPassphrase,
+      options,
+    );
   }
 
   /** Builds and immediately serializes for transport/storage. */
   buildAndSerialize(
     account: OfflineAccountStub,
     artifact: ContractCallArtifact,
-    options: OfflineBuildOptions = {}
+    options: OfflineBuildOptions = {},
   ): SerializedTransaction {
     const prepared = this.build(account, artifact, options);
     return serializeTransaction(prepared, account.sequenceNumber);
@@ -202,5 +204,64 @@ export class OfflineTransactionBuilder {
   /** Inspects a prepared transaction for human-readable review. */
   inspect(prepared: PreparedTransaction) {
     return inspectTransaction(prepared);
+  }
+
+  /**
+   * Estimates gas costs for an offline transaction.
+   * 
+   * Note: This provides a rough estimate based on transaction size and operation count.
+   * For precise estimates, use the online `sdk.estimateGas()` method which simulates
+   * against the actual contract state.
+   *
+   * @param account - The source account stub
+   * @param artifact - The contract call artifact
+   * @param baseFee - Base fee in stroops (default: 100)
+   * @param bufferMultiplier - Multiplier for max fee (default: 1.2)
+   * @returns Rough gas estimation
+   */
+  estimateGasOffline(
+    account: OfflineAccountStub,
+    artifact: ContractCallArtifact,
+    baseFee = 100,
+    bufferMultiplier = 1.2
+  ): {
+    estimatedFee: number;
+    maxFee: number;
+    transactionSizeBytes: number;
+    summary: string;
+  } {
+    // Build the transaction to estimate its size
+    const prepared = this.build(account, artifact, { fee: baseFee });
+    const decoded = decodeTransactionXdr(prepared);
+    
+    // Estimate transaction size
+    const txXdr = prepared.xdr;
+    const transactionSizeBytes = Math.ceil(txXdr.length * 0.75); // Base64 to bytes estimate
+    
+    // Estimate operation complexity based on args
+    const argSizeEstimate = artifact.args.reduce((sum, arg) => {
+      // Rough estimate: ScVal XDR is typically 100-500 bytes depending on type
+      return sum + 200;
+    }, 0);
+    
+    // Base cost calculation
+    const baseCost = baseFee;
+    // Size cost: ~1 stroop per 100 bytes
+    const sizeCost = Math.ceil(transactionSizeBytes / 100);
+    // Arg complexity cost
+    const complexityCost = Math.ceil(argSizeEstimate / 50);
+    
+    const estimatedFee = baseCost + sizeCost + complexityCost;
+    const maxFee = Math.ceil(estimatedFee * bufferMultiplier);
+    
+    const estimatedXlm = (estimatedFee / 10_000_000).toFixed(7);
+    const maxXlm = (maxFee / 10_000_000).toFixed(7);
+    
+    return {
+      estimatedFee,
+      maxFee,
+      transactionSizeBytes,
+      summary: `Estimated gas: ${estimatedXlm} XLM (max: ${maxXlm} XLM). Tx size: ${transactionSizeBytes} bytes.`,
+    };
   }
 }

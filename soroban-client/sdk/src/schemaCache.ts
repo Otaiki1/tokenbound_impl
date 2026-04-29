@@ -121,7 +121,10 @@ export class WebStorageSchemaStore implements SchemaStore {
   private readonly storage: KeyValueStorage;
   private readonly prefix: string;
 
-  constructor(storage: KeyValueStorage, prefix: string = DEFAULT_STORAGE_PREFIX) {
+  constructor(
+    storage: KeyValueStorage,
+    prefix: string = DEFAULT_STORAGE_PREFIX,
+  ) {
     this.storage = storage;
     this.prefix = prefix;
   }
@@ -248,7 +251,7 @@ export class ContractSchemaCache {
   }
 
   private async staleReason(
-    cached: ContractSchema
+    cached: ContractSchema,
   ): Promise<"version" | "wasmHash" | null> {
     if (!this.probe) {
       return null;
@@ -290,12 +293,12 @@ export class ContractSchemaCache {
   private async fetchAndStore(
     contractId: string,
     previous: ContractSchema | undefined,
-    reason: "missing" | "version" | "wasmHash" | "manual"
+    reason: "missing" | "version" | "wasmHash" | "manual",
   ): Promise<ContractSchema> {
     const fresh = await this.resolver.resolve(contractId);
     if (fresh.contractId !== contractId) {
       throw new Error(
-        `Resolver returned a schema for ${fresh.contractId} but ${contractId} was requested.`
+        `Resolver returned a schema for ${fresh.contractId} but ${contractId} was requested.`,
       );
     }
     const schema: ContractSchema = { ...fresh, fetchedAt: this.now() };
@@ -311,7 +314,7 @@ export class ContractSchemaCache {
  * for tests.
  */
 export function staticSchemaResolver(
-  schemas: Readonly<Record<string, Omit<ContractSchema, "fetchedAt">>>
+  schemas: Readonly<Record<string, Omit<ContractSchema, "fetchedAt">>>,
 ): SchemaResolver {
   return {
     async resolve(contractId: string) {
