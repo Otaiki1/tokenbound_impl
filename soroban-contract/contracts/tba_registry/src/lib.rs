@@ -125,6 +125,7 @@ impl TbaRegistry {
         token_id: u128,
         salt: BytesN<32>,
     ) -> Result<Address, Error> {
+        upg::require_not_paused(&env);
         // Verify that the caller owns the NFT (Issue #26)
         // This is a cross-contract call to the NFT contract
         let owner: Address = env.invoke_contract(
