@@ -67,20 +67,24 @@ pub struct EventLedger {
     pub withdrawn: bool,
 }
 
+/// Packed POAP + TBA integration config (one instance read in `distribute_poaps`).
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PoapIntegration {
+    pub tba_registry: Address,
+    pub tba_implementation_hash: BytesN<32>,
+    pub tba_salt: BytesN<32>,
+    pub poap_nft: Address,
+}
+
 #[contracttype]
 pub enum DataKey {
     Event(u32),
     ArchivedEvent(u32),
     EventCounter,
     TicketFactory,
-    /// Optional: TBA registry address used to resolve ticket TBAs
-    TbaRegistry,
-    /// Optional: TBA implementation hash (see `tba_registry::{get_account,create_account}`)
-    TbaImplementationHash,
-    /// Optional: TBA salt used to derive deterministic TBAs
-    TbaSalt,
-    /// POAP contract (minter should be this EventManager)
-    PoapNft,
+    /// POAP distribution + deterministic TBA resolution (packed).
+    PoapIntegration,
     RefundClaimed(u32, Address),
     EventBuyers(u32),
     EventTiers(u32),
@@ -300,14 +304,15 @@ impl EventManager {
     ) -> Result<(), Error> {
         upg::require_admin(&env);
 
+        let cfg = PoapIntegration {
+            tba_registry,
+            tba_implementation_hash,
+            tba_salt,
+            poap_nft,
+        };
         env.storage()
             .instance()
-            .set(&DataKey::TbaRegistry, &tba_registry);
-        env.storage()
-            .instance()
-            .set(&DataKey::TbaImplementationHash, &tba_implementation_hash);
-        env.storage().instance().set(&DataKey::TbaSalt, &tba_salt);
-        env.storage().instance().set(&DataKey::PoapNft, &poap_nft);
+            .set(&DataKey::PoapIntegration, &cfg);
         upg::extend_instance_ttl(&env);
         Ok(())
     }
@@ -393,26 +398,10 @@ impl EventManager {
             return Ok(0);
         }
 
-        let poap_addr: Address = env
+        let cfg: PoapIntegration = env
             .storage()
             .instance()
-            .get(&DataKey::PoapNft)
-            .ok_or(Error::FactoryNotInitialized)?;
-
-        let tba_registry: Address = env
-            .storage()
-            .instance()
-            .get(&DataKey::TbaRegistry)
-            .ok_or(Error::FactoryNotInitialized)?;
-        let impl_hash: BytesN<32> = env
-            .storage()
-            .instance()
-            .get(&DataKey::TbaImplementationHash)
-            .ok_or(Error::FactoryNotInitialized)?;
-        let salt: BytesN<32> = env
-            .storage()
-            .instance()
-            .get(&DataKey::TbaSalt)
+            .get(&DataKey::PoapIntegration)
             .ok_or(Error::FactoryNotInitialized)?;
 
         // STORAGE: attendees list lives in `temporary` storage (see
@@ -446,14 +435,14 @@ impl EventManager {
 
             // Resolve deterministic ticket TBA.
             let tba_addr: Address = env.invoke_contract(
-                &tba_registry,
+                &cfg.tba_registry,
                 &Symbol::new(&env, "get_account"),
                 soroban_sdk::vec![
                     &env,
-                    impl_hash.clone().into_val(&env),
+                    cfg.tba_implementation_hash.clone().into_val(&env),
                     event.ticket_nft_addr.clone().into_val(&env),
                     token_id.into_val(&env),
-                    salt.clone().into_val(&env),
+                    cfg.tba_salt.clone().into_val(&env),
                 ],
             );
 
@@ -466,7 +455,7 @@ impl EventManager {
                 issued_at: env.ledger().timestamp(),
             };
             env.invoke_contract::<u128>(
-                &poap_addr,
+                &cfg.poap_nft,
                 &Symbol::new(&env, "mint_poap"),
                 soroban_sdk::vec![&env, tba_addr.into_val(&env), poap_md.into_val(&env),],
             );
@@ -789,17 +778,6 @@ impl EventManager {
         env.events()
             .publish((Symbol::new(&env, "RefundClaimed"),), event);
 
-    pub fn initialize_legacy(env: Env, ticket_factory: Address) -> Result<(), Error> {
-        if env.storage().instance().has(&DataKey::TicketFactory) {
-            return Err(Error::AlreadyInitialized);
-        }
-        upg::set_admin(&env, &ticket_factory);
-        upg::init_version(&env);
-        env.storage()
-            .instance()
-            .set(&DataKey::TicketFactory, &ticket_factory);
-        env.storage().instance().set(&DataKey::EventCounter, &0u32);
-        upg::extend_instance_ttl(&env);
         Ok(())
     }
 

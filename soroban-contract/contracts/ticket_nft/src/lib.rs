@@ -46,6 +46,14 @@ pub struct OffChainMetadata {
     pub updated_at: u64,
 }
 
+/// Packed instance storage: minter + monotonic id (one read/write on mint).
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TicketNftCore {
+    pub minter: Address,
+    pub next_token_id: u128,
+}
+
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EventInfo {
@@ -78,8 +86,8 @@ pub struct OffChainUpdatedEvent {
 #[derive(Clone)]
 #[contracttype]
 pub enum DataKey {
-    Minter,
-    NextTokenId,
+    /// Minting authority + next token id (packed).
+    Core,
     Owner(u128),
     Balance(Address),
     Metadata(u128),
@@ -95,18 +103,21 @@ impl TicketNft {
     pub fn __constructor(env: Env, minter: Address) {
         upg::set_admin(&env, &minter);
         upg::init_version(&env);
-        env.storage().instance().set(&DataKey::Minter, &minter);
-        env.storage().instance().set(&DataKey::NextTokenId, &1u128);
+        let core = TicketNftCore {
+            minter: minter.clone(),
+            next_token_id: 1,
+        };
+        env.storage().instance().set(&DataKey::Core, &core);
         upg::extend_instance_ttl(&env);
     }
 
     pub fn mint_ticket_nft(env: Env, recipient: Address) -> Result<u128, Error> {
-        let minter: Address = env
+        let mut core: TicketNftCore = env
             .storage()
             .instance()
-            .get(&DataKey::Minter)
+            .get(&DataKey::Core)
             .ok_or(Error::NotInitialized)?;
-        minter.require_auth();
+        core.minter.require_auth();
 
         let current_balance: u128 = env
             .storage()
@@ -118,11 +129,8 @@ impl TicketNft {
             return Err(Error::UserAlreadyHasTicket);
         }
 
-        let token_id: u128 = env
-            .storage()
-            .instance()
-            .get(&DataKey::NextTokenId)
-            .unwrap_or(1);
+        let token_id = core.next_token_id;
+        core.next_token_id = token_id.checked_add(1).unwrap();
 
         env.storage()
             .persistent()
@@ -142,9 +150,7 @@ impl TicketNft {
             .persistent()
             .set(&DataKey::Metadata(token_id), &metadata);
 
-        env.storage()
-            .instance()
-            .set(&DataKey::NextTokenId, &(token_id + 1));
+        env.storage().instance().set(&DataKey::Core, &core);
 
         Self::extend_persistent_ttl(&env, &DataKey::Owner(token_id));
         Self::extend_persistent_ttl(&env, &DataKey::Balance(recipient.clone()));
@@ -390,10 +396,12 @@ impl TicketNft {
     }
 
     pub fn get_minter(env: Env) -> Result<Address, Error> {
-        env.storage()
+        let core: TicketNftCore = env
+            .storage()
             .instance()
-            .get(&DataKey::Minter)
-            .ok_or(Error::NotInitialized)
+            .get(&DataKey::Core)
+            .ok_or(Error::NotInitialized)?;
+        Ok(core.minter)
     }
 
     pub fn schedule_upgrade(env: Env, new_wasm_hash: BytesN<32>) {
@@ -461,8 +469,9 @@ impl TicketNft {
         let minter: Address = env
             .storage()
             .instance()
-            .get(&DataKey::Minter)
-            .ok_or(Error::NotInitialized)?;
+            .get::<_, TicketNftCore>(&DataKey::Core)
+            .ok_or(Error::NotInitialized)?
+            .minter;
         minter.require_auth();
         Ok(())
     }
