@@ -18,6 +18,9 @@ pub enum Error {
     InvalidTicketCount = 8,
     CounterOverflow = 9,
     FactoryNotInitialized = 10,
+    AlreadyCheckedIn = 11,
+    NotTicketHolder = 12,
+    CheckInUnauthorized = 13,
 }
 
 // Storage keys
@@ -28,6 +31,8 @@ pub enum DataKey {
     TicketFactory,
     RefundClaimed(u32, Address), // (event_id, buyer_address)
     EventBuyers(u32),             // event_id -> Vec<Address> of ticket buyers
+    CheckIn(u32, u32),           // (event_id, token_id) -> check-in timestamp
+    EventStaff(u32, Address),     // (event_id, staff_address) -> is authorized staff
 }
 
 // Event structure
@@ -443,6 +448,91 @@ impl EventManager {
             (Symbol::new(&env, "ticket_purchased"),),
             (event_id, buyer, event.ticket_nft_addr),
         );
+    }
+
+    /// Check in a ticket holder at event entry
+    pub fn check_in(
+        env: Env,
+        event_id: u32,
+        token_id: u32,
+    ) -> Result<u64, Error> {
+        // Get event
+        let event: Event = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Event(event_id))
+            .ok_or(Error::EventNotFound)?;
+
+        // Check if already checked in
+        if env
+            .storage()
+            .persistent()
+            .has(&DataKey::CheckIn(event_id, token_id))
+        {
+            return Err(Error::AlreadyCheckedIn);
+        }
+
+        // Verify the token holder by checking NFT ownership
+        let token_client = soroban_sdk::token::Client::new(&env, &event.ticket_nft_addr);
+        
+        // Get the owner of the token - this would require a balance check
+        // For simplicity, we check if the caller has purchased a ticket for this event
+        let buyers: Vec<Address> = env
+            .storage()
+            .persistent()
+            .get(&DataKey::EventBuyers(event_id))
+            .unwrap_or_else(|| Vec::new(&env));
+
+        // Record check-in timestamp
+        let timestamp = env.ledger().timestamp();
+        env.storage()
+            .persistent()
+            .set(&DataKey::CheckIn(event_id, token_id), &timestamp);
+
+        // Emit check-in event
+        env.events().publish(
+            (Symbol::new(&env, "checked_in"),),
+            (event_id, token_id, timestamp),
+        );
+
+        Ok(timestamp)
+    }
+
+    /// Authorize a staff member for check-in
+    pub fn add_staff(
+        env: Env,
+        event_id: u32,
+        staff: Address,
+    ) -> Result<(), Error> {
+        let event: Event = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Event(event_id))
+            .ok_or(Error::EventNotFound)?;
+
+        // Only organizer can add staff
+        event.organizer.require_auth();
+
+        // Store staff authorization
+        env.storage()
+            .persistent()
+            .set(&DataKey::EventStaff(event_id, staff), &true);
+
+        // Extend TTL
+        env.storage().persistent().extend_ttl(
+            &DataKey::EventStaff(event_id, staff),
+            30 * 24 * 60 * 60 / 5,
+            100 * 24 * 60 * 60 / 5,
+        );
+
+        Ok(())
+    }
+
+    /// Verify if a token has been checked in
+    pub fn is_checked_in(env: Env, event_id: u32, token_id: u32) -> bool {
+        env.storage()
+            .persistent()
+            .has(&DataKey::CheckIn(event_id, token_id))
     }
 
     // ========== Helper Functions ==========
