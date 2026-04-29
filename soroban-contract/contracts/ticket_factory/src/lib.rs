@@ -28,11 +28,12 @@ pub enum Error {
     Unauthorized = 2,
 }
 
-/// Storage keys for the contract state
+/// Storage keys for the contract state.
+///
+/// Admin lives only in [`upgradeable::UpgradeKey::Admin`] (see `upg::set_admin`);
+/// duplicating it here wasted an instance slot and an extra write on init.
 #[contracttype]
 pub enum DataKey {
-    /// Factory administrator address
-    Admin,
     /// WASM hash of the Ticket NFT contract to deploy
     TicketWasmHash,
     /// Total number of ticket contracts deployed
@@ -58,7 +59,6 @@ impl TicketFactory {
     pub fn __constructor(env: Env, admin: Address, ticket_wasm_hash: BytesN<32>) {
         upg::set_admin(&env, &admin);
         upg::init_version(&env);
-        env.storage().instance().set(&DataKey::Admin, &admin);
         env.storage()
             .instance()
             .set(&DataKey::TicketWasmHash, &ticket_wasm_hash);
@@ -87,11 +87,7 @@ impl TicketFactory {
     /// Requires admin authorization
     pub fn deploy_ticket(env: Env, minter: Address, salt: BytesN<32>) -> Result<Address, Error> {
         // Authorize: only admin can deploy
-        let admin: Address = env
-            .storage()
-            .instance()
-            .get(&DataKey::Admin)
-            .ok_or(Error::NotInitialized)?;
+        let admin: Address = upg::try_get_admin(&env).ok_or(Error::NotInitialized)?;
         admin.require_auth();
 
         // Get the WASM hash for deployment
@@ -197,11 +193,7 @@ impl TicketFactory {
     /// # Returns
     /// The admin address
     pub fn get_admin(env: Env) -> Result<Address, Error> {
-        let admin: Address = env
-            .storage()
-            .instance()
-            .get(&DataKey::Admin)
-            .ok_or(Error::NotInitialized)?;
+        let admin: Address = upg::try_get_admin(&env).ok_or(Error::NotInitialized)?;
 
         // Extend instance TTL on read
         upg::extend_instance_ttl(&env);

@@ -21,6 +21,7 @@ pub enum StorageTier {
 
 impl StorageTier {
     /// Read a value from the selected storage tier.
+    #[inline]
     pub fn get<K, V>(&self, env: &Env, key: &K) -> Option<V>
     where
         K: IntoVal<Env, Val>,
@@ -34,6 +35,7 @@ impl StorageTier {
     }
 
     /// Write a value to the selected storage tier.
+    #[inline]
     pub fn set<K, V>(&self, env: &Env, key: &K, val: &V)
     where
         K: IntoVal<Env, Val>,
@@ -47,6 +49,7 @@ impl StorageTier {
     }
 
     /// Remove a key from the selected storage tier.
+    #[inline]
     pub fn remove<K>(&self, env: &Env, key: &K)
     where
         K: IntoVal<Env, Val>,
@@ -59,6 +62,7 @@ impl StorageTier {
     }
 
     /// Check whether a key exists in the selected storage tier.
+    #[inline]
     pub fn has<K>(&self, env: &Env, key: &K) -> bool
     where
         K: IntoVal<Env, Val>,

@@ -78,11 +78,14 @@ pub fn set_admin(env: &Env, admin: &Address) {
     env.storage().instance().set(&UpgradeKey::Admin, admin);
 }
 
+/// Returns the admin address when the contract has been initialized.
+#[inline]
+pub fn try_get_admin(env: &Env) -> Option<Address> {
+    env.storage().instance().get(&UpgradeKey::Admin)
+}
+
 pub fn get_admin(env: &Env) -> Address {
-    env.storage()
-        .instance()
-        .get(&UpgradeKey::Admin)
-        .expect("admin not set")
+    try_get_admin(env).expect("admin not set")
 }
 
 pub fn require_admin(env: &Env) {
