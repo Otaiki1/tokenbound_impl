@@ -3,7 +3,7 @@ import { signTransaction } from "@stellar/freighter-api";
 
 // Use require for the default export
 const StellarSdk = require("@stellar/stellar-sdk");
-const { Server, TransactionBuilder, Operation, SorobanRpc } = StellarSdk;
+const { Server, TransactionBuilder, Operation, SorobanRpc, FeeBumpTransaction } = StellarSdk;
 
 // Import Networks separately to avoid conflict
 import { Networks } from "@stellar/stellar-sdk";
@@ -14,6 +14,7 @@ import {
   initializeRPCManager,
   DEFAULT_RPC_CONFIG,
 } from "./rpc-failover";
+import { classifyError, SorobanError } from "./errors";
 
 // Configuration helpers – prefer environment variables so they can be swapped
 // for different networks (testnet / preview / mainnet) without changing code.
@@ -151,25 +152,29 @@ export async function createEvent(
     args,
   });
 
-  const tx = new TransactionBuilder(sourceAccount, {
-    fee: fee.toString(),
-    networkPassphrase: NETWORK_PASSPHRASE,
-  })
-    .addOperation(operation)
-    .setTimeout(30)
-    .build();
+  try {
+    const tx = new TransactionBuilder(sourceAccount, {
+      fee: fee.toString(),
+      networkPassphrase: NETWORK_PASSPHRASE,
+    })
+      .addOperation(operation)
+      .setTimeout(30)
+      .build();
 
-  const txXdr = tx.toXDR();
+    const txXdr = tx.toXDR();
 
-  // ask configured wallet provider to sign
-  const signedTxXdr = await signTransactionFn(txXdr, {
-    networkPassphrase: NETWORK_PASSPHRASE,
-    address: params.organizer,
-  });
+    // ask configured wallet provider to sign
+    const signedTxXdr = await signTransactionFn(txXdr, {
+      networkPassphrase: NETWORK_PASSPHRASE,
+      address: params.organizer,
+    });
 
-  // submit to horizon and return the result
-  const signedTx = TransactionBuilder.fromXDR(signedTxXdr, NETWORK_PASSPHRASE);
-  return await server.submitTransaction(signedTx as any);
+    // submit to horizon and return the result
+    const signedTx = TransactionBuilder.fromXDR(signedTxXdr, NETWORK_PASSPHRASE);
+    return await server.submitTransaction(signedTx as any);
+  } catch (error) {
+    throw classifyError(error);
+  }
 }
 
 export async function buyTickets(
@@ -595,4 +600,41 @@ export async function getActiveListings(): Promise<any[]> {
     active: l.active,
     created_at: Number(l.created_at),
   }));
+}
+
+/**
+ * Builds a fee bump transaction for a given inner transaction.
+ * @param innerTx The original transaction to be wrapped.
+ * @param feeSource The account address that will pay the fees.
+ * @param baseFee The fee to be paid for the fee bump transaction.
+ */
+export async function buildFeeBumpTransaction(
+  innerTxXdr: string,
+  feeSource: string,
+  baseFee: string,
+) {
+  const server = await getRPCManager().getHorizonServer();
+  const feeSourceAccount = await server.loadAccount(feeSource);
+  
+  const innerTx = TransactionBuilder.fromXDR(innerTxXdr, NETWORK_PASSPHRASE);
+  
+  return TransactionBuilder.buildFeeBumpTransaction(
+    feeSourceAccount,
+    baseFee,
+    innerTx,
+    NETWORK_PASSPHRASE,
+  );
+}
+
+/**
+ * Submits a fee bump transaction to the network.
+ * @param feeBumpTx The fee bump transaction to submit.
+ */
+export async function submitFeeBumpTransaction(feeBumpTx: any) {
+  const server = await getRPCManager().getHorizonServer();
+  try {
+    return await server.submitTransaction(feeBumpTx);
+  } catch (error) {
+    throw classifyError(error);
+  }
 }

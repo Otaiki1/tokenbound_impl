@@ -104,6 +104,7 @@ impl TbaAccount {
         implementation_hash: BytesN<32>,
         salt: BytesN<32>,
     ) -> Result<(), Error> {
+        upg::require_not_paused(&env);
         // Prevent re-initialization
         if is_initialized(&env) {
             return Err(Error::AlreadyInitialized);
@@ -169,6 +170,7 @@ impl TbaAccount {
     /// Only the current NFT owner can execute transactions
     /// This function increments the nonce and emits an event
     pub fn execute(env: Env, to: Address, func: Symbol, args: Vec<Val>) -> Result<Vec<Val>, Error> {
+        upg::require_not_paused(&env);
         if !is_initialized(&env) {
             return Err(Error::NotInitialized);
         }
@@ -203,6 +205,7 @@ impl TbaAccount {
         to: Address,
         amount: i128,
     ) -> Result<(), Error> {
+        upg::require_not_paused(&env);
         if !is_initialized(&env) {
             return Err(Error::NotInitialized);
         }
@@ -224,6 +227,7 @@ impl TbaAccount {
         to: Address,
         nft_token_id: u128,
     ) -> Result<(), Error> {
+        upg::require_not_paused(&env);
         if !is_initialized(&env) {
             return Err(Error::NotInitialized);
         }
@@ -244,6 +248,7 @@ impl TbaAccount {
         token_address: Address,
         recipients: Vec<(Address, i128)>,
     ) -> Result<u32, Error> {
+        upg::require_not_paused(&env);
         if !is_initialized(&env) {
             return Err(Error::NotInitialized);
         }
